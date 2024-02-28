@@ -20,9 +20,22 @@ pub fn build(b: *std.Build) void {
         .root_source_file = .{ .path = "src/main.zig" },
         .target = target,
         .optimize = optimize,
-        .use_lld = false,
-        .use_llvm = false,
+        // .use_lld = false,
+        // .use_llvm = false,
     });
+
+    const glfw_dep = b.dependency("mach-glfw", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    exe.root_module.addImport("mach-glfw", glfw_dep.module("mach-glfw"));
+
+    const zgl_dep = b.dependency("zgl", .{});
+    exe.root_module.addImport("zgl", zgl_dep.module("zgl"));
+
+    const blend2d_dep = b.dependency("blend2d", .{});
+    exe.linkLibrary(blend2d_dep.artifact("blend2d"));
 
     // exe.linkLibC();
 

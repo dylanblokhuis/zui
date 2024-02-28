@@ -1,99 +1,22 @@
 const std = @import("std");
+const glfw = @import("mach-glfw");
+const zui = @import("ui.zig");
+const gl = @import("zgl");
+const c = @cImport({
+    @cInclude("blend2d/blend2d.h");
+});
+
 const Allocator = std.mem.Allocator;
 
-/// # remaining stuff
-///
-/// how to do if statements
-const zui = struct {
-    allocator: Allocator,
+fn glGetProcAddress(p: glfw.GLProc, proc: [:0]const u8) ?gl.binding.FunctionPointer {
+    _ = p;
+    return glfw.getProcAddress(proc);
+}
 
-    // nodes: std.MultiArrayList(ViewNode),
-
-    const Self = @This();
-
-    pub fn init(allocator: Allocator) !Self {
-        return Self{
-            .allocator = allocator,
-            // .nodes = std.MultiArrayList(ViewNode){},
-        };
-    }
-
-    pub const p = struct {
-        class: []const u8,
-        on_click: ?*const fn () void = null,
-        child: ?ViewNode = null,
-    };
-
-    const ViewNode = struct {
-        class: []const u8 = "",
-        on_click: ?*const fn () void = null,
-        children: ?[]const ViewNode = null,
-    };
-
-    /// function to make a singular view node
-    pub fn v(self: *Self, props: p) ViewNode {
-        var children: ?[]ViewNode = null;
-
-        if (props.child != null) {
-            children = self.allocator.alloc(ViewNode, 1) catch unreachable;
-            if (props.child != null) {
-                children.?[0] = props.child.?;
-            }
-        }
-
-        return ViewNode{
-            .class = props.class,
-            .on_click = props.on_click,
-            .children = children,
-        };
-    }
-
-    /// function to make an array of view nodes
-    pub fn vv(self: *Self, children: []const ViewNode) ViewNode {
-        const nodes = self.allocator.alloc(ViewNode, children.len) catch unreachable;
-        for (children, 0..) |child, index| {
-            nodes[index] = child;
-        }
-
-        return ViewNode{
-            .children = nodes,
-        };
-    }
-
-    pub fn foreach(self: *Self, comptime T: type, cb: *const fn (self: *Self, item: T, index: usize) ViewNode, items: []const T) ViewNode {
-        var children = self.allocator.alloc(ViewNode, items.len) catch unreachable;
-        for (items, 0..) |item, index| {
-            children[index] = cb(self, item, index);
-        }
-
-        return ViewNode{
-            .children = children,
-        };
-    }
-
-    pub fn fmt(self: *Self, comptime format: []const u8, args: anytype) []u8 {
-        return std.fmt.allocPrint(self.allocator, format, args) catch unreachable;
-    }
-};
-
-// const Hello = struct {
-//     pub fn handle_click() void {
-//         std.log.debug("clicked", .{});
-//     }
-
-//     pub fn render(ui: *zui) []zui.ViewNode {
-//         return ui.v(.{
-//             .class = "flex flex-wrap",
-//             .on_click = handle_click,
-//             .children = ui.vv(.{
-//                 ui.v(.{
-//                     .class = "flex flex-wrap",
-//                 }),
-//                 // .class = "flex flex-wrap",
-//             }),
-//         });
-//     }
-// };
+/// Default GLFW error handling callback
+fn errorCallback(error_code: glfw.ErrorCode, description: [:0]const u8) void {
+    std.log.err("glfw: {}: {s}\n", .{ error_code, description });
+}
 
 fn forl(ui: *zui, item: u8, index: usize) zui.ViewNode {
     return zui.ViewNode{
@@ -102,79 +25,186 @@ fn forl(ui: *zui, item: u8, index: usize) zui.ViewNode {
 }
 
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    var ui = try zui.init(arena.allocator());
+    glfw.setErrorCallback(errorCallback);
+    if (!glfw.init(.{})) {
+        std.log.err("failed to initialize GLFW: {?s}", .{glfw.getErrorString()});
+        std.process.exit(1);
+    }
+    defer glfw.terminate();
+    const window = glfw.Window.create(640, 480, "mach-glfw + zig-opengl", null, null, .{
+        .opengl_profile = .opengl_core_profile,
+        .context_version_major = 4,
+        .context_version_minor = 0,
+    }) orelse {
+        std.log.err("failed to create GLFW window: {?s}", .{glfw.getErrorString()});
+        std.process.exit(1);
+    };
+    defer window.destroy();
+    glfw.makeContextCurrent(window);
 
-    const tree = ui.v(.{
-        .class = "flex flex-wrap",
-        .child = ui.vv(&.{
-            ui.v(.{
-                .class = "flex flex-wrap p-4",
-            }),
-            ui.v(.{
-                .class = "flex flex-wrap p-10",
-                .child = ui.foreach(u8, forl, &.{
-                    4,
-                    2,
+    const proc: glfw.GLProc = undefined;
+    try gl.loadExtensions(proc, glGetProcAddress);
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    // Wait for the user to close the window.
+    while (!window.shouldClose()) {
+        glfw.pollEvents();
+
+        var ui = try zui.init(arena.allocator());
+
+        const tree = ui.v(.{
+            .class = "w-100 h-100 bg-red-600",
+            .child = ui.vv(&.{
+                ui.v(.{
+                    .class = "p-4",
+                }),
+                ui.v(.{
+                    .class = "p-10",
+                    .child = ui.foreach(u8, forl, &.{
+                        4,
+                        2,
+                    }),
+                }),
+                ui.v(.{
+                    .class = ui.fmt("bg-{s}", .{"red-600"}),
                 }),
             }),
-            ui.v(.{
-                .class = ui.fmt("bg-{s}", .{"red-600"}),
-            }),
-        }),
-    });
+        });
 
-    const PrintTree = struct {
-        const Self = @This();
+        // gl.clearColor(1, 1, 1, 1);
+        // gl.clear(.{
+        //     .color = true,
+        //     .depth = true,
+        //     .stencil = false,
+        // });
+        const texture_id = gl.genTexture();
+        gl.bindTexture(texture_id, .@"2d");
 
-        pub fn print_tree(node: *const zui.ViewNode, depth: u8) void {
-            for (0..depth) |_| {
-                std.debug.print("  ", .{});
-            }
-            std.debug.print("{s}\n", .{node.class});
+        gl.textureParameter(texture_id, gl.TextureParameter.min_filter, .linear);
+        gl.textureParameter(texture_id, gl.TextureParameter.mag_filter, .linear);
+        gl.textureParameter(texture_id, gl.TextureParameter.wrap_s, .clamp_to_edge);
+        gl.textureParameter(texture_id, gl.TextureParameter.wrap_t, .clamp_to_edge);
 
-            if (node.children == null) {
-                return;
-            }
-
-            // const children = &node.children.?;
-            for (node.children.?) |*child| {
-                Self.print_tree(child, depth + 1);
-            }
+        const data = render(tree);
+        if (data) |img| {
+            std.log.debug("{any}", .{img.pixelData});
+            gl.textureImage2D(.@"2d", 0, .rgba8, 480, 480, .rgba, .unsigned_byte, @ptrCast(img.pixelData));
         }
-    };
 
-    PrintTree.print_tree(&tree, 0);
+        const vao = gl.genVertexArray();
+        const vbo = gl.genBuffer();
+        const ebo = gl.genBuffer();
+
+        gl.bindVertexArray(vao);
+
+        const vertices = [_]f32{
+            // positions   // texCoords
+            -1.0, 1.0, 0.0, 0.0, 1.0, // top let
+            -1.0, -1.0, 0.0, 0.0, 0.0, // bottom let
+            1.0, -1.0, 0.0, 1.0, 0.0, // bottom right
+            1.0, 1.0, 0.0, 1.0, 1.0, // top right
+        };
+
+        const indices = [_]u32{
+            0, 1, 2, // first triangle
+            0, 2, 3, // second triangle
+        };
+
+        gl.bindBuffer(vbo, .array_buffer);
+        gl.bufferData(.array_buffer, f32, &vertices, .static_draw);
+
+        gl.bindBuffer(ebo, .element_array_buffer);
+        gl.bufferData(.element_array_buffer, u32, &indices, .static_draw);
+
+        gl.vertexAttribPointer(0, 3, .float, false, 5 * @sizeOf(f32), 0);
+        gl.enableVertexAttribArray(0);
+
+        gl.vertexAttribPointer(1, 2, .float, false, 5 * @sizeOf(f32), 3 * @sizeOf(f32));
+        gl.enableVertexAttribArray(1);
+
+        _ = arena.reset(.retain_capacity);
+        window.swapBuffers();
+    }
+
+    // const PrintTree = struct {
+    //     const Self = @This();
+
+    //     pub fn print_tree(node: *const zui.ViewNode, depth: u8) void {
+    //         for (0..depth) |_| {
+    //             std.debug.print("  ", .{});
+    //         }
+    //         std.debug.print("{s}\n", .{node.class});
+
+    //         if (node.children == null) {
+    //             return;
+    //         }
+
+    //         // const children = &node.children.?;
+    //         for (node.children.?) |*child| {
+    //             Self.print_tree(child, depth + 1);
+    //         }
+    //     }
+    // };
+
+    // PrintTree.print_tree(&tree, 0);
 
     // arena size
-    std.debug.print("bytes in arena: {d}\n", .{arena.queryCapacity()});
+    // std.debug.print("bytes in arena: {d}\n", .{arena.queryCapacity()});
+}
 
-    // const props = zui.Props{ .class = "yo" };
-    // try ui.v("flex flex-warp", .{});
+/// does the gl calls for the given node and its children
+pub fn render(root_node: zui.ViewNode) ?c.BLImageData {
+    _ = root_node; // autofix
 
-    // const ui = try zui.init(std.heap.c_allocator);
-    // _ = ui; // autofix
-    // var tree = LayoutTree.init(std.heap.c_allocator);
+    std.log.debug("{d:.4}", .{5.0});
 
-    // const yo = try tree.new_leaf(.{
-    //     .layout = .rows,
-    // });
+    var img: c.BLImageCore = undefined;
+    var ctx: c.BLContextCore = undefined;
 
-    // const yo2 = try tree.new_leaf(.{
-    //     .layout = .columns,
-    // });
+    var result = c.blImageInitAs(&img, 480, 480, c.BL_FORMAT_PRGB32);
+    if (result != c.BL_SUCCESS) {
+        std.log.err("Failed to initialize image: {any}\n", .{result});
+        return null;
+    }
 
-    // try tree.add_child(yo, yo2);
+    result = c.blContextInitAs(&ctx, &img, null);
+    if (result != c.BL_SUCCESS) {
+        _ = c.blImageDestroy(&img);
+        std.log.err("Failed to initialize context: {any}\n", .{result});
+        return null;
+    }
 
-    // var iterator = tree.nodes.iterator();
-    // while (iterator.next()) |index| {
-    //     const node = tree.nodes.get(index).?;
-    //     std.log.debug("parent {any}", .{node});
+    _ = c.blContextClearAll(&ctx);
 
-    //     for (node.children.items) |child| {
-    //         std.log.debug("child {any}", .{child});
-    //     }
-    // }
+    // do some drawing
+
+    var round_rect = c.BLRoundRect{
+        .x = 500,
+        .y = 195,
+        .w = 270,
+        .h = 270,
+        .rx = 20,
+        .ry = 20,
+    };
+    _ = c.blContextFillGeometry(&ctx, c.BL_GEOMETRY_TYPE_ROUND_RECT, &round_rect);
+
+    var image_data: c.BLImageData = undefined;
+    _ = c.blImageGetData(&img, &image_data);
+
+    _ = c.blContextEnd(&ctx);
+    _ = c.blImageDestroy(&img);
+
+    return image_data;
+
+    // write the image to a file
+
+    // var codec: c.BLImageCodecCore = undefined;
+    // result = c.blImageCodecInitByName(&codec, "PNG", c.SIZE_MAX, null);
+
+    // _ = c.blImageWriteToFile(&img, "output.png", null);
+
 }
 
 // const Style = struct {

@@ -14,20 +14,10 @@
     // `zig build --fetch` can be used to fetch all dependencies of a package, recursively.
     // Once all dependencies are fetched, `zig build` no longer requires
     // internet connectivity.
-    .dependencies = .{
-        .@"mach-glfw" = .{
-            .url = "https://codeload.github.com/dylanblokhuis/mach-glfw/tar.gz/f0691e1af06b6252346b05e5acc125c1ca007bf2",
-            .hash = "12201340bbfeeb6284ef11785ec40c9ba7c332dd262146d4ff4b9d1bb1a640c9001a",
-        },
-        .zgl = .{
-            .url = "https://codeload.github.com/ziglibs/zgl/tar.gz/0c7f680200aa3be87fb98a726c1fab480d02f8d9",
-            .hash = "1220e0118a243a3917317c9cf466d59ac91fa9656620318f7e6290ca538e79498f15",
-        },
-        .blend2d = .{
-            .url = "https://codeload.github.com/dylanblokhuis/blend2d/tar.gz/a9b7ee51ac9689c61c668af46165cb459cc0a2fa",
-            .hash = "1220025455d42239c0910c0b4017299b48d91e467e30cae167b0b4f4ef49dd6f73b9",
-        },
-    },
+    .dependencies = .{ .raylib = .{
+        .url = "https://codeload.github.com/raysan5/raylib/tar.gz/bda919033dfdd2d0d75b606f3fa29d21f0408ffb",
+        .hash = "1220d2103013a427ebd8e02a75080479f467dd3e3e8ab3415003f03e493b64b449e8",
+    } },
 
     // Specifies the set of files and directories that are included in this package.
     // Only files and directories listed here are included in the `hash` that

@@ -17,6 +17,62 @@ pub const LayContext = c.lay_context;
 pub const Layout = struct {
     ctx: c.lay_context = undefined,
 
+    // container flags
+
+    /// left to right
+    pub const CONTAIN_ROW: c_int = 2;
+    /// top to bottom
+    pub const CONTAIN_COLUMN: c_int = 3;
+
+    /// free layout
+    pub const CONTAIN_LAYOUT: c_int = 0;
+    /// flex layout
+    pub const CONTAIN_FLEX: c_int = 2;
+
+    /// wrap flags, no wrap
+    pub const CONTAIN_NOWRAP: c_int = 0;
+    /// wrap flags, no wrap
+    pub const CONTAIN_WRAP: c_int = 4;
+
+    /// justify-content-start
+    pub const CONTAIN_START: c_int = 8;
+    /// justify-content-middle
+    pub const CONTAIN_MIDDLE: c_int = 0;
+    /// justify-content-end
+    pub const CONTAIN_END: c_int = 16;
+    /// justify-content-between
+    pub const CONTAIN_JUSTIFY: c_int = 24;
+
+    // behaviour flags
+
+    /// anchor to left item or left side of parent
+    pub const BEHAVE_LEFT: c_int = 32;
+    /// anchor to top item or top side of parent
+    pub const BEHAVE_TOP: c_int = 64;
+    /// anchor to right item or right side of parent
+    pub const BEHAVE_RIGHT: c_int = 128;
+    /// anchor to bottom item or bottom side of parent
+    pub const BEHAVE_BOTTOM: c_int = 256;
+    /// anchor to both left and right item or parent borders
+    pub const BEHAVE_HFILL: c_int = 160;
+    /// anchor to both top and bottom item or parent borders
+    pub const BEHAVE_VFILL: c_int = 320;
+    /// center horizontally, with left margin as offset
+    pub const BEHAVE_HCENTER: c_int = 0;
+    /// center vertically, with top margin as offset
+    pub const BEHAVE_VCENTER: c_int = 0;
+    /// center in both directions, with left/top margin as offset
+    pub const BEHAVE_CENTER: c_int = 0;
+    /// anchor to all four directions
+    pub const BEHAVE_FILL: c_int = 480;
+    /// When in a wrapping container, put this element on a new line. Wrapping
+    /// layout code auto-inserts LAY_BREAK flags as needed. See GitHub issues for
+    /// TODO related to this.
+    ///
+    /// Drawing routines can read this via item pointers as needed after
+    /// performing layout calculations.
+    pub const BEHAVE_BREAK: c_int = 512;
+
     const Self = @This();
 
     pub fn init() !Self {

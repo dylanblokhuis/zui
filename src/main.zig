@@ -62,7 +62,8 @@ pub fn main() !void {
     layout.set_size_xy(root, 100, 100);
     layout.set_size_xy(child, 90, 80);
     layout.set_margins_ltrb(root, 10, 10, 10, 10);
-    // layout.set_behave(root, )
+
+    layout.set_contain(root, Layout.CONTAIN_ROW | Layout.CONTAIN_FLEX | Layout.CONTAIN_MIDDLE);
 
     layout.add_child(root, child);
     layout.run();

@@ -1,4 +1,5 @@
 const std = @import("std");
+const layout = @import("./libs/layout/layout.zig");
 const Allocator = std.mem.Allocator;
 
 /// # remaining stuff
@@ -9,6 +10,8 @@ allocator: Allocator,
 colors: std.StringHashMap([4]u8),
 
 fonts: std.StringArrayHashMap([]const u8),
+
+layout: layout.Layout,
 
 // nodes: std.MultiArrayList(ViewNode),
 
@@ -30,6 +33,7 @@ pub fn init(allocator: Allocator) !Self {
         .allocator = allocator,
         .colors = colors,
         .fonts = std.StringArrayHashMap([]const u8).init(std.heap.c_allocator),
+        .layout = try layout.Layout.init(),
     };
 }
 
@@ -40,19 +44,12 @@ pub const p = struct {
     children: ?[]ViewNode = null,
 };
 
-pub const Layout = struct {
-    width: f32,
-    height: f32,
-    x: f32,
-    y: f32,
-};
-
 pub const ViewNode = struct {
     class: []const u8 = "",
     text: []const u8 = "",
     on_click: ?*const fn () void = null,
     children: ?[]ViewNode = null,
-    computed_layout: ?Layout = null,
+    layout_id: layout.LayId,
     bg_color: [4]u8 = [4]u8{ 0, 0, 0, 0 },
     text_color: [4]u8 = [4]u8{ 255, 255, 255, 255 },
     text_size: f32 = 14.0,
@@ -62,13 +59,21 @@ pub const ViewNode = struct {
 
 /// function to make a singular view node
 pub fn v(self: *Self, props: p) ViewNode {
-    _ = self; // autofix
+    const id = self.layout.create_leaf();
+
+    if (props.children) |children| {
+        for (children) |child| {
+            _ = child; // autofix
+            // self.layout.add_child(id, child.layout_id);
+        }
+    }
 
     return ViewNode{
         .class = props.class,
         .text = props.text,
         .on_click = props.on_click,
         .children = props.children,
+        .layout_id = id,
     };
 }
 
@@ -157,11 +162,6 @@ const Style = struct {
     width: f32 = 0.0,
     height: f32 = 0.0,
 
-    padding_left: f32 = 0.0,
-    padding_right: f32 = 0.0,
-    padding_top: f32 = 0.0,
-    padding_bottom: f32 = 0.0,
-
     margin_left: f32 = 0.0,
     margin_right: f32 = 0.0,
     margin_top: f32 = 0.0,
@@ -195,40 +195,6 @@ fn get_style(self: *Self, class: []const u8) Style {
 
         if (get_class_value("h-", chunk)) |height| {
             style.height = height;
-        }
-
-        // padding
-        if (get_class_value("p-", chunk)) |padding| {
-            style.padding_left = padding;
-            style.padding_right = padding;
-            style.padding_top = padding;
-            style.padding_bottom = padding;
-        }
-
-        if (get_class_value("px-", chunk)) |padding| {
-            style.padding_left = padding;
-            style.padding_right = padding;
-        }
-
-        if (get_class_value("py-", chunk)) |padding| {
-            style.padding_top = padding;
-            style.padding_bottom = padding;
-        }
-
-        if (get_class_value("pl-", chunk)) |padding| {
-            style.padding_left = padding;
-        }
-
-        if (get_class_value("pr-", chunk)) |padding| {
-            style.padding_right = padding;
-        }
-
-        if (get_class_value("pt-", chunk)) |padding| {
-            style.padding_top = padding;
-        }
-
-        if (get_class_value("pb-", chunk)) |padding| {
-            style.padding_bottom = padding;
         }
 
         // margin
@@ -299,81 +265,20 @@ fn get_style(self: *Self, class: []const u8) Style {
     return style;
 }
 
-const LayoutInput = struct {
-    offset: struct {
-        x: f32,
-        y: f32,
-    },
-    parent_size: struct {
-        width: f32,
-        height: f32,
-    },
-    space_available: struct {
-        width: f32,
-        height: f32,
-    },
-};
-
-fn compute_layout_inner(self: *Self, node: *ViewNode, parent_style: *const Style, parent_layout_input: *LayoutInput) void {
+fn compute_layout_inner(self: *Self, node: *ViewNode) void {
     const style = self.get_style(node.class);
-    // TODO: fix this mess
     node.bg_color = style.bg_color;
     node.rounding = style.rounding;
     node.text_size = style.text_size;
     node.font_name = style.font_name;
 
-    node.computed_layout = Layout{
-        .width = style.width,
-        .height = style.height,
-        .x = parent_layout_input.parent_size.width - parent_layout_input.space_available.width + parent_layout_input.offset.x + style.margin_left,
-        .y = parent_layout_input.parent_size.height - parent_layout_input.space_available.height + parent_layout_input.offset.y + style.margin_top,
-    };
-
-    if (parent_style.is_column) {
-        parent_layout_input.space_available.height -= style.height;
-    } else {
-        parent_layout_input.space_available.width -= style.width;
-    }
-
-    if (node.children == null) {
-        return;
-    }
-
-    var input = LayoutInput{
-        .offset = .{
-            .x = node.computed_layout.?.x + style.padding_left,
-            .y = node.computed_layout.?.y + style.padding_top,
-        },
-        .parent_size = .{
-            .width = style.width,
-            .height = style.height,
-        },
-        .space_available = .{
-            .width = style.width,
-            .height = style.height,
-        },
-    };
-
     for (node.children.?) |*child| {
-        compute_layout_inner(self, @constCast(child), &style, &input);
+        compute_layout_inner(self, @constCast(child));
     }
 }
 
 /// computes the layout for the whole tree and sets the layout property
-pub fn compute_layout(self: *Self, root: *ViewNode, width: f32, height: f32) void {
-    var input = LayoutInput{
-        .offset = .{
-            .x = 0,
-            .y = 0,
-        },
-        .space_available = .{
-            .width = width,
-            .height = height,
-        },
-        .parent_size = .{
-            .width = width,
-            .height = height,
-        },
-    };
-    self.compute_layout_inner(root, &Style{}, &input);
+pub fn compute_layout(self: *Self, root: *ViewNode) void {
+    self.compute_layout_inner(root);
+    self.layout.run();
 }

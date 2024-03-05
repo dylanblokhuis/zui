@@ -6,37 +6,43 @@ const Layout = @import("./libs/layout//layout.zig").Layout;
 const Allocator = std.mem.Allocator;
 
 fn forl(ui: *zui, item: u8, index: usize) zui.ViewNode {
-    return zui.ViewNode{
+    return ui.v(.{
         .class = ui.fmt("w-10 h-20 bg-indigo item-{d}-index-{d}", .{ item, index }),
-    };
+    });
 }
 
 const Draw = struct {
     const Self = @This();
 
     pub fn draw_node(ui: *const zui, fonts: *const RLFonts, node: *const zui.ViewNode) void {
-        if (node.computed_layout) |layout| {
-            const average = (layout.width + layout.height) / 2;
-            const roundness = node.rounding / average;
+        // if (node.layout_id) |layout_id| {
+        const rect = ui.layout.get_rect(node.layout_id);
+        const x = @as(f32, @floatFromInt(rect[0]));
+        const y = @as(f32, @floatFromInt(rect[1]));
+        const width = @as(f32, @floatFromInt(rect[2]));
+        const height = @as(f32, @floatFromInt(rect[3]));
 
-            const text = std.fmt.allocPrintZ(ui.allocator, "{s}", .{node.text}) catch unreachable;
+        const average = (width + height) / 2;
+        const roundness = node.rounding / average;
 
-            if (!std.mem.eql(u8, node.text, "")) {
-                const maybe_font = fonts.get(node.font_name);
-                if (maybe_font) |font| {
-                    rl.drawTextEx(font, text, rl.Vector2.init(layout.x, layout.y), node.text_size, 0, rl.Color.init(node.text_color[0], node.text_color[1], node.text_color[2], node.text_color[3]));
-                } else {
-                    rl.drawText(text, @intFromFloat(layout.x), @intFromFloat(layout.y), @intFromFloat(node.text_size), rl.Color.init(node.text_color[0], node.text_color[1], node.text_color[2], node.text_color[3]));
-                }
+        const text = std.fmt.allocPrintZ(ui.allocator, "{s}", .{node.text}) catch unreachable;
+
+        if (!std.mem.eql(u8, node.text, "")) {
+            const maybe_font = fonts.get(node.font_name);
+            if (maybe_font) |font| {
+                rl.drawTextEx(font, text, rl.Vector2.init(x, y), node.text_size, 0, rl.Color.init(node.text_color[0], node.text_color[1], node.text_color[2], node.text_color[3]));
             } else {
-                rl.drawRectangleRounded(.{
-                    .width = layout.width,
-                    .height = layout.height,
-                    .x = layout.x,
-                    .y = layout.y,
-                }, roundness, 10, rl.Color.init(node.bg_color[0], node.bg_color[1], node.bg_color[2], node.bg_color[3]));
+                rl.drawText(text, @intFromFloat(x), @intFromFloat(y), @intFromFloat(node.text_size), rl.Color.init(node.text_color[0], node.text_color[1], node.text_color[2], node.text_color[3]));
             }
+        } else {
+            rl.drawRectangleRounded(.{
+                .width = width,
+                .height = height,
+                .x = x,
+                .y = y,
+            }, roundness, 10, rl.Color.init(node.bg_color[0], node.bg_color[1], node.bg_color[2], node.bg_color[3]));
         }
+        // }
 
         if (node.children == null) {
             return;
@@ -54,22 +60,22 @@ pub fn main() !void {
     const screenWidth = 1280;
     const screenHeight = 720;
 
-    var layout = try Layout.init();
+    // var layout = try Layout.init();
 
-    const root = layout.create_leaf();
-    const child = layout.create_leaf();
+    // const root = layout.create_leaf();
+    // const child = layout.create_leaf();
 
-    layout.set_size_xy(root, 100, 100);
-    layout.set_size_xy(child, 90, 80);
-    layout.set_margins_ltrb(root, 10, 10, 10, 10);
+    // layout.set_size_xy(root, 100, 100);
+    // layout.set_size_xy(child, 90, 80);
+    // layout.set_margins_ltrb(root, 10, 10, 10, 10);
 
-    layout.set_contain(root, Layout.CONTAIN_ROW | Layout.CONTAIN_FLEX | Layout.CONTAIN_MIDDLE);
+    // layout.set_contain(root, Layout.CONTAIN_ROW | Layout.CONTAIN_FLEX | Layout.CONTAIN_MIDDLE);
 
-    layout.add_child(root, child);
-    layout.run();
+    // layout.add_child(root, child);
+    // layout.run();
 
-    std.log.debug("root {any}", .{layout.get_rect(root)});
-    std.log.debug("child {any}", .{layout.get_rect(child)});
+    // std.log.debug("root {any}", .{layout.get_rect(root)});
+    // std.log.debug("child {any}", .{layout.get_rect(child)});
 
     // _ = layout; // autofix
 
@@ -133,7 +139,7 @@ pub fn main() !void {
             }),
         });
 
-        ui.compute_layout(&tree, screenWidth, screenHeight);
+        ui.compute_layout(&tree);
 
         rl.beginDrawing();
         rl.clearBackground(rl.Color.black);
@@ -141,7 +147,7 @@ pub fn main() !void {
         rl.drawFPS(screenWidth - 100, screenHeight - 30);
 
         {
-            Draw.draw_node(&ui, &rl_fonts, &tree);
+            // Draw.draw_node(&ui, &rl_fonts, &tree);
         }
 
         rl.endDrawing();

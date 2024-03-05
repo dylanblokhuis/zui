@@ -4,6 +4,7 @@ const c = @cImport({
 
 pub const LayId = c.lay_id;
 pub const LayContext = c.lay_context;
+pub const Rect = c.lay_vec4;
 
 // pub const LayItem = struct {
 //     id: LayId,
@@ -132,7 +133,7 @@ pub const Layout = struct {
     /// 0: x starting position, 1: y starting position
     ///
     /// 2: width, 3: height
-    pub fn get_rect(self: *Self, id: LayId) c.lay_vec4 {
+    pub fn get_rect(self: *const Self, id: LayId) c.lay_vec4 {
         return c.lay_get_rect(&self.ctx, id);
     }
 

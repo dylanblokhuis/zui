@@ -49,7 +49,7 @@ pub const ViewNode = struct {
     text: []const u8 = "",
     on_click: ?*const fn () void = null,
     children: ?[]ViewNode = null,
-    layout_id: layout.LayId,
+    layout_id: ?layout.LayId = null,
     bg_color: [4]u8 = [4]u8{ 0, 0, 0, 0 },
     text_color: [4]u8 = [4]u8{ 255, 255, 255, 255 },
     text_size: f32 = 14.0,
@@ -59,21 +59,13 @@ pub const ViewNode = struct {
 
 /// function to make a singular view node
 pub fn v(self: *Self, props: p) ViewNode {
-    std.log.debug("{s}", .{props.class});
-    const id = self.layout.create_leaf();
-
-    if (props.children) |children| {
-        for (children) |child| {
-            self.layout.add_child(id, child.layout_id);
-        }
-    }
+    _ = self; // autofix
 
     return ViewNode{
         .class = props.class,
         .text = props.text,
         .on_click = props.on_click,
         .children = props.children,
-        .layout_id = id,
     };
 }
 
@@ -167,7 +159,9 @@ const Style = struct {
         start,
         center,
         end,
-    } = .start,
+        between,
+    } = .center,
+    wrap: bool = false,
 
     width: i16 = 0,
     height: i16 = 0,
@@ -197,6 +191,10 @@ fn get_style(self: *Self, class: []const u8) Style {
 
         if (std.mem.eql(u8, chunk, "col")) {
             style.is_column = true;
+        }
+
+        if (std.mem.eql(u8, chunk, "wrap")) {
+            style.wrap = true;
         }
 
         if (get_class_value(i16, "w-", chunk)) |width| {
@@ -275,25 +273,64 @@ fn get_style(self: *Self, class: []const u8) Style {
     return style;
 }
 
-fn compute_layout_inner(self: *Self, node: *ViewNode) void {
+fn compute_layout_inner(self: *Self, node: *ViewNode, maybe_parent_layout_id: ?layout.LayId) void {
     const style = self.get_style(node.class);
     node.bg_color = style.bg_color;
     node.rounding = style.rounding;
     node.text_size = style.text_size;
     node.font_name = style.font_name;
 
-    self.layout.set_size_xy(node.layout_id, style.width, style.height);
-    self.layout.set_margins_ltrb(node.layout_id, style.margin_left, style.margin_top, style.margin_right, style.margin_bottom);
+    const layout_id = self.layout.create_leaf();
+
+    self.layout.set_size_xy(layout_id, style.width, style.height);
+    self.layout.set_margins_ltrb(layout_id, style.margin_left, style.margin_top, style.margin_right, style.margin_bottom);
+
+    {
+        var container_flags = layout.Layout.CONTAIN_LAYOUT;
+        if (style.is_column) {
+            container_flags |= layout.Layout.CONTAIN_COLUMN;
+        } else {
+            container_flags |= layout.Layout.CONTAIN_ROW;
+        }
+
+        if (style.wrap) {
+            container_flags |= layout.Layout.CONTAIN_WRAP;
+        } else {
+            container_flags |= layout.Layout.CONTAIN_NOWRAP;
+        }
+
+        if (style.align_items == .start) {
+            container_flags |= layout.Layout.CONTAIN_START;
+        } else if (style.align_items == .center) {
+            container_flags |= layout.Layout.CONTAIN_MIDDLE;
+        } else if (style.align_items == .end) {
+            container_flags |= layout.Layout.CONTAIN_END;
+        } else if (style.align_items == .between) {
+            container_flags |= layout.Layout.CONTAIN_JUSTIFY;
+        }
+
+        self.layout.set_contain(layout_id, container_flags);
+    }
+
+    {
+        // self.layout.set_behave(layout_id, layout.Layout.BEHAVE_TOP | layout.Layout.BEHAVE_LEFT);
+    }
+
+    node.layout_id = layout_id;
+
+    if (maybe_parent_layout_id) |parent_layout_id| {
+        self.layout.add_child(parent_layout_id, layout_id);
+    }
 
     if (node.children) |children| {
         for (children) |*child| {
-            compute_layout_inner(self, @constCast(child));
+            compute_layout_inner(self, @constCast(child), layout_id);
         }
     }
 }
 
 /// computes the layout for the whole tree and sets the layout property
 pub fn compute_layout(self: *Self, root: *ViewNode) void {
-    self.compute_layout_inner(root);
-    self.layout.run(root.layout_id);
+    self.compute_layout_inner(root, null);
+    self.layout.run();
 }

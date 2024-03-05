@@ -21,28 +21,28 @@ pub const Layout = struct {
     // container flags
 
     /// left to right
-    pub const CONTAIN_ROW: c_int = 2;
+    pub const CONTAIN_ROW: c_uint = 2;
     /// top to bottom
-    pub const CONTAIN_COLUMN: c_int = 3;
+    pub const CONTAIN_COLUMN: c_uint = 3;
 
     /// free layout
-    pub const CONTAIN_LAYOUT: c_int = 0;
+    pub const CONTAIN_LAYOUT: c_uint = 0;
     /// flex layout
-    pub const CONTAIN_FLEX: c_int = 2;
+    pub const CONTAIN_FLEX: c_uint = 2;
 
     /// wrap flags, no wrap
-    pub const CONTAIN_NOWRAP: c_int = 0;
+    pub const CONTAIN_NOWRAP: c_uint = 0;
     /// wrap flags, no wrap
-    pub const CONTAIN_WRAP: c_int = 4;
+    pub const CONTAIN_WRAP: c_uint = 4;
 
     /// justify-content-start
-    pub const CONTAIN_START: c_int = 8;
+    pub const CONTAIN_START: c_uint = 8;
     /// justify-content-middle
-    pub const CONTAIN_MIDDLE: c_int = 0;
+    pub const CONTAIN_MIDDLE: c_uint = 0;
     /// justify-content-end
-    pub const CONTAIN_END: c_int = 16;
+    pub const CONTAIN_END: c_uint = 16;
     /// justify-content-between
-    pub const CONTAIN_JUSTIFY: c_int = 24;
+    pub const CONTAIN_JUSTIFY: c_uint = 24;
 
     // behaviour flags
 
@@ -122,8 +122,8 @@ pub const Layout = struct {
     /// However, it's safe to use lay_set_size on an item, and then re-run
     /// lay_run_context. This might be useful if you are doing a resizing animation
     /// on items in a layout without any contents changing.
-    pub fn run(self: *Self, root: LayId) void {
-        c.lay_run_item(&self.ctx, root);
+    pub fn run(self: *Self) void {
+        c.lay_run_context(&self.ctx);
     }
 
     /// Returns the calculated rectangle of an item. This is only valid after calling

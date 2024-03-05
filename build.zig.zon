@@ -14,17 +14,12 @@
     // `zig build --fetch` can be used to fetch all dependencies of a package, recursively.
     // Once all dependencies are fetched, `zig build` no longer requires
     // internet connectivity.
-    .dependencies = .{ .raylib = .{
-        .url = "https://codeload.github.com/raysan5/raylib/tar.gz/bda919033dfdd2d0d75b606f3fa29d21f0408ffb",
-        .hash = "1220d2103013a427ebd8e02a75080479f467dd3e3e8ab3415003f03e493b64b449e8",
-    } },
-
-    // Specifies the set of files and directories that are included in this package.
-    // Only files and directories listed here are included in the `hash` that
-    // is computed for this package.
-    // Paths are relative to the build root. Use the empty string (`""`) to refer to
-    // the build root itself.
-    // A directory listed here means that all files within, recursively, are included.
+    .dependencies = .{
+        .raylib = .{
+            .url = "https://codeload.github.com/raysan5/raylib/tar.gz/c7b362d19dd32b00a0fce90bc9abe8afd3d4b754",
+            .hash = "12202b102eadc20a885909eaa18bb0c5d9c82b13e77f091ca51ee0cfd8e600cae0e5",
+        },
+    },
     .paths = .{
         // This makes *all* files, recursively, included in this package. It is generally
         // better to explicitly list the files and directories instead, to insure that

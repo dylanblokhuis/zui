@@ -59,12 +59,12 @@ pub const ViewNode = struct {
 
 /// function to make a singular view node
 pub fn v(self: *Self, props: p) ViewNode {
+    std.log.debug("{s}", .{props.class});
     const id = self.layout.create_leaf();
 
     if (props.children) |children| {
         for (children) |child| {
-            _ = child; // autofix
-            // self.layout.add_child(id, child.layout_id);
+            self.layout.add_child(id, child.layout_id);
         }
     }
 
@@ -109,7 +109,7 @@ pub fn fmt(self: *Self, comptime format: []const u8, args: anytype) []u8 {
     return std.fmt.allocPrint(self.allocator, format, args) catch unreachable;
 }
 
-fn get_class_value(prefix: []const u8, class: []const u8) ?f32 {
+fn get_class_value(comptime T: type, prefix: []const u8, class: []const u8) ?T {
     var splits = std.mem.split(u8, class, prefix);
 
     std.debug.assert(splits.next() != null);
@@ -117,7 +117,17 @@ fn get_class_value(prefix: []const u8, class: []const u8) ?f32 {
     const maybe_value = splits.next();
 
     if (maybe_value) |value| {
-        return std.fmt.parseFloat(f32, value) catch null;
+        const info = @typeInfo(T);
+
+        if (info == .Float) {
+            return std.fmt.parseFloat(T, value) catch null;
+        }
+
+        if (info == .Int) {
+            return std.fmt.parseInt(T, value, 10) catch null;
+        }
+
+        return null;
     }
 
     return null;
@@ -159,13 +169,13 @@ const Style = struct {
         end,
     } = .start,
 
-    width: f32 = 0.0,
-    height: f32 = 0.0,
+    width: i16 = 0,
+    height: i16 = 0,
 
-    margin_left: f32 = 0.0,
-    margin_right: f32 = 0.0,
-    margin_top: f32 = 0.0,
-    margin_bottom: f32 = 0.0,
+    margin_left: i16 = 0,
+    margin_right: i16 = 0,
+    margin_top: i16 = 0,
+    margin_bottom: i16 = 0,
 
     bg_color: [4]u8 = [4]u8{ 0, 0, 0, 0 },
     text_color: [4]u8 = [4]u8{ 0, 0, 0, 0 },
@@ -189,45 +199,45 @@ fn get_style(self: *Self, class: []const u8) Style {
             style.is_column = true;
         }
 
-        if (get_class_value("w-", chunk)) |width| {
+        if (get_class_value(i16, "w-", chunk)) |width| {
             style.width = width;
         }
 
-        if (get_class_value("h-", chunk)) |height| {
+        if (get_class_value(i16, "h-", chunk)) |height| {
             style.height = height;
         }
 
         // margin
-        if (get_class_value("m-", chunk)) |margin| {
+        if (get_class_value(i16, "m-", chunk)) |margin| {
             style.margin_left = margin;
             style.margin_right = margin;
             style.margin_top = margin;
             style.margin_bottom = margin;
         }
 
-        if (get_class_value("mx-", chunk)) |margin| {
+        if (get_class_value(i16, "mx-", chunk)) |margin| {
             style.margin_left = margin;
             style.margin_right = margin;
         }
 
-        if (get_class_value("my-", chunk)) |margin| {
+        if (get_class_value(i16, "my-", chunk)) |margin| {
             style.margin_top = margin;
             style.margin_bottom = margin;
         }
 
-        if (get_class_value("ml-", chunk)) |margin| {
+        if (get_class_value(i16, "ml-", chunk)) |margin| {
             style.margin_left = margin;
         }
 
-        if (get_class_value("mr-", chunk)) |margin| {
+        if (get_class_value(i16, "mr-", chunk)) |margin| {
             style.margin_right = margin;
         }
 
-        if (get_class_value("mt-", chunk)) |margin| {
+        if (get_class_value(i16, "mt-", chunk)) |margin| {
             style.margin_top = margin;
         }
 
-        if (get_class_value("mb-", chunk)) |margin| {
+        if (get_class_value(i16, "mb-", chunk)) |margin| {
             style.margin_bottom = margin;
         }
 
@@ -235,11 +245,11 @@ fn get_style(self: *Self, class: []const u8) Style {
             style.bg_color = color;
         }
 
-        if (get_class_value("rounded-", chunk)) |rounding| {
+        if (get_class_value(f32, "rounded-", chunk)) |rounding| {
             style.rounding = rounding;
         }
 
-        if (get_class_value("text-", chunk)) |text_size| {
+        if (get_class_value(f32, "text-", chunk)) |text_size| {
             style.text_size = text_size;
         }
 
@@ -272,13 +282,18 @@ fn compute_layout_inner(self: *Self, node: *ViewNode) void {
     node.text_size = style.text_size;
     node.font_name = style.font_name;
 
-    for (node.children.?) |*child| {
-        compute_layout_inner(self, @constCast(child));
+    self.layout.set_size_xy(node.layout_id, style.width, style.height);
+    self.layout.set_margins_ltrb(node.layout_id, style.margin_left, style.margin_top, style.margin_right, style.margin_bottom);
+
+    if (node.children) |children| {
+        for (children) |*child| {
+            compute_layout_inner(self, @constCast(child));
+        }
     }
 }
 
 /// computes the layout for the whole tree and sets the layout property
 pub fn compute_layout(self: *Self, root: *ViewNode) void {
     self.compute_layout_inner(root);
-    self.layout.run();
+    self.layout.run(root.layout_id);
 }

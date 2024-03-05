@@ -42,14 +42,11 @@ const Draw = struct {
                 .y = y,
             }, roundness, 10, rl.Color.init(node.bg_color[0], node.bg_color[1], node.bg_color[2], node.bg_color[3]));
         }
-        // }
 
-        if (node.children == null) {
-            return;
-        }
-
-        for (node.children.?) |*child| {
-            Self.draw_node(ui, fonts, child);
+        if (node.children) |children| {
+            for (children) |*child| {
+                Self.draw_node(ui, fonts, child);
+            }
         }
     }
 };
@@ -104,41 +101,42 @@ pub fn main() !void {
         try rl_fonts.put(name.key_ptr.*, rl.loadFont(font_name_zeroed));
     }
 
+    var tree = ui.v(.{
+        .class = "w-250 h-500 bg-red col",
+
+        // make this always be an array
+        .children = ui.vv(&.{
+            ui.v(.{
+                .class = "w-100 rounded-100 h-100 bg-yellow",
+                // .children = ui.vv(&.{
+                //     ui.v(.{
+                //         .class = "w-50 h-50 bg-blue",
+                //     }),
+                // }),
+            }),
+            ui.v(.{
+                .class = "w-40 h-40 bg-green",
+                // .children = ui.foreach(u8, forl, &.{
+                //     4,
+                //     2,
+                // }),
+            }),
+            ui.v(.{
+                .class = ui.fmt("bg-{s} w-50 h-50", .{"blue"}),
+            }),
+            // ui.v(.{
+            //     .class = "text-16",
+            //     .text = "hello world",
+            // }),
+            // ui.v(.{
+            //     .class = "text-16 font-bold",
+            //     .text = "hello world",
+            // }),
+        }),
+    });
+
     // Wait for the user to close the window.
     while (!rl.windowShouldClose()) {
-        var tree = ui.v(.{
-            .class = "w-150 h-150 bg-red col",
-            // make this always be an array
-            .children = ui.vv(&.{
-                ui.v(.{
-                    .class = "p-10 w-100 rounded-100 h-100 bg-yellow",
-                    .children = ui.vv(&.{
-                        ui.v(.{
-                            .class = "w-50 h-50 bg-blue",
-                        }),
-                    }),
-                }),
-                ui.v(.{
-                    .class = "p-10 w-40 h-40 bg-green",
-                    .children = ui.foreach(u8, forl, &.{
-                        4,
-                        2,
-                    }),
-                }),
-                ui.v(.{
-                    .class = ui.fmt("bg-{s} w-50 h-50", .{"blue"}),
-                }),
-                ui.v(.{
-                    .class = "text-16",
-                    .text = "hello world",
-                }),
-                ui.v(.{
-                    .class = "text-16 font-bold",
-                    .text = "hello world",
-                }),
-            }),
-        });
-
         ui.compute_layout(&tree);
 
         rl.beginDrawing();
@@ -146,13 +144,12 @@ pub fn main() !void {
 
         rl.drawFPS(screenWidth - 100, screenHeight - 30);
 
-        {
-            // Draw.draw_node(&ui, &rl_fonts, &tree);
-        }
+        Draw.draw_node(&ui, &rl_fonts, &tree);
 
         rl.endDrawing();
-        _ = arena.reset(.retain_capacity);
     }
+
+    _ = arena.reset(.retain_capacity);
 
     // const PrintTree = struct {
     //     const Self = @This();

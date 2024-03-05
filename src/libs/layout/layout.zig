@@ -122,8 +122,8 @@ pub const Layout = struct {
     /// However, it's safe to use lay_set_size on an item, and then re-run
     /// lay_run_context. This might be useful if you are doing a resizing animation
     /// on items in a layout without any contents changing.
-    pub fn run(self: *Self) void {
-        c.lay_run_context(&self.ctx);
+    pub fn run(self: *Self, root: LayId) void {
+        c.lay_run_item(&self.ctx, root);
     }
 
     /// Returns the calculated rectangle of an item. This is only valid after calling

@@ -26,6 +26,13 @@ pub fn build(b: *std.Build) void {
 
     exe.linkLibC();
 
+    exe.addCSourceFile(.{ .file = .{
+        .path = "./src/libs/layout/layout.c",
+    } });
+    exe.addIncludePath(.{
+        .path = "./src/libs/layout/",
+    });
+
     const raylib = b.dependency("raylib", .{
         .target = target,
         .optimize = optimize,

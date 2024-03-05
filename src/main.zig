@@ -1,6 +1,7 @@
 const std = @import("std");
 const zui = @import("ui.zig");
 const rl = @import("raylib");
+const Layout = @import("./libs/layout//layout.zig").Layout;
 
 const Allocator = std.mem.Allocator;
 
@@ -10,28 +11,91 @@ fn forl(ui: *zui, item: u8, index: usize) zui.ViewNode {
     };
 }
 
+const Draw = struct {
+    const Self = @This();
+
+    pub fn draw_node(ui: *const zui, fonts: *const RLFonts, node: *const zui.ViewNode) void {
+        if (node.computed_layout) |layout| {
+            const average = (layout.width + layout.height) / 2;
+            const roundness = node.rounding / average;
+
+            const text = std.fmt.allocPrintZ(ui.allocator, "{s}", .{node.text}) catch unreachable;
+
+            if (!std.mem.eql(u8, node.text, "")) {
+                const maybe_font = fonts.get(node.font_name);
+                if (maybe_font) |font| {
+                    rl.drawTextEx(font, text, rl.Vector2.init(layout.x, layout.y), node.text_size, 0, rl.Color.init(node.text_color[0], node.text_color[1], node.text_color[2], node.text_color[3]));
+                } else {
+                    rl.drawText(text, @intFromFloat(layout.x), @intFromFloat(layout.y), @intFromFloat(node.text_size), rl.Color.init(node.text_color[0], node.text_color[1], node.text_color[2], node.text_color[3]));
+                }
+            } else {
+                rl.drawRectangleRounded(.{
+                    .width = layout.width,
+                    .height = layout.height,
+                    .x = layout.x,
+                    .y = layout.y,
+                }, roundness, 10, rl.Color.init(node.bg_color[0], node.bg_color[1], node.bg_color[2], node.bg_color[3]));
+            }
+        }
+
+        if (node.children == null) {
+            return;
+        }
+
+        for (node.children.?) |*child| {
+            Self.draw_node(ui, fonts, child);
+        }
+    }
+};
+
+const RLFonts = std.StringArrayHashMap(rl.Font);
+
 pub fn main() !void {
     const screenWidth = 1280;
     const screenHeight = 720;
+
+    var layout = try Layout.init();
+
+    const root = layout.create_leaf();
+    const child = layout.create_leaf();
+
+    layout.set_size_xy(root, 100, 100);
+    layout.set_size_xy(child, 90, 80);
+    layout.set_margins_ltrb(root, 10, 10, 10, 10);
+    // layout.set_behave(root, )
+
+    layout.add_child(root, child);
+    layout.run();
+
+    std.log.debug("root {any}", .{layout.get_rect(root)});
+    std.log.debug("child {any}", .{layout.get_rect(child)});
+
+    // _ = layout; // autofix
 
     rl.setConfigFlags(.flag_msaa_4x_hint);
     rl.initWindow(screenWidth, screenHeight, "some-game");
     rl.setWindowMonitor(0);
     rl.setTargetFPS(0);
+    // const font = rl.loadFont("Inter-VariableFont_slnt,wght.ttf");
+    // rl.loadfont
+    // defer font.unload();
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
     var ui = try zui.init(arena.allocator());
 
-    // const data = render(tree, screenWidth, screenHeight).?;
+    try ui.fonts.put("default", "./assets/Inter-Regular.ttf");
+    try ui.fonts.put("bold", "./assets/Inter-Bold.ttf");
 
-    // std.log.debug("{any}", .{data.len});
+    var rl_fonts = RLFonts.init(std.heap.c_allocator);
+    defer rl_fonts.deinit();
 
-    // // rl.updateTexture(texture: Texture2D, pixels: *const anyopaque)
-
-    // const image = rl.loadImageFromMemory(".png", data);
-    // const texture = rl.loadTextureFromImage(image);
+    var iter = ui.fonts.iterator();
+    while (iter.next()) |name| {
+        const font_name_zeroed = std.fmt.allocPrintZ(arena.allocator(), "{s}", .{name.value_ptr.*}) catch unreachable;
+        try rl_fonts.put(name.key_ptr.*, rl.loadFont(font_name_zeroed));
+    }
 
     // Wait for the user to close the window.
     while (!rl.windowShouldClose()) {
@@ -40,7 +104,12 @@ pub fn main() !void {
             // make this always be an array
             .children = ui.vv(&.{
                 ui.v(.{
-                    .class = "p-4 w-50 rounded-100 h-40 bg-yellow",
+                    .class = "p-10 w-100 rounded-100 h-100 bg-yellow",
+                    .children = ui.vv(&.{
+                        ui.v(.{
+                            .class = "w-50 h-50 bg-blue",
+                        }),
+                    }),
                 }),
                 ui.v(.{
                     .class = "p-10 w-40 h-40 bg-green",
@@ -51,6 +120,14 @@ pub fn main() !void {
                 }),
                 ui.v(.{
                     .class = ui.fmt("bg-{s} w-50 h-50", .{"blue"}),
+                }),
+                ui.v(.{
+                    .class = "text-16",
+                    .text = "hello world",
+                }),
+                ui.v(.{
+                    .class = "text-16 font-bold",
+                    .text = "hello world",
                 }),
             }),
         });
@@ -63,33 +140,7 @@ pub fn main() !void {
         rl.drawFPS(screenWidth - 100, screenHeight - 30);
 
         {
-            const Draw = struct {
-                const Self = @This();
-
-                pub fn draw_node(node: *const zui.ViewNode) void {
-                    if (node.computed_layout) |layout| {
-                        const average = (layout.width + layout.height) / 2;
-                        const roundness = node.rounding / average;
-
-                        rl.drawRectangleRounded(.{
-                            .width = layout.width,
-                            .height = layout.height,
-                            .x = layout.x,
-                            .y = layout.y,
-                        }, roundness, 10, rl.Color.init(node.bg_color[0], node.bg_color[1], node.bg_color[2], node.bg_color[3]));
-                    }
-
-                    if (node.children == null) {
-                        return;
-                    }
-
-                    for (node.children.?) |*child| {
-                        Self.draw_node(child);
-                    }
-                }
-            };
-
-            Draw.draw_node(&tree);
+            Draw.draw_node(&ui, &rl_fonts, &tree);
         }
 
         rl.endDrawing();

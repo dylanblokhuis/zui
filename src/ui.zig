@@ -8,6 +8,8 @@ allocator: Allocator,
 
 colors: std.StringHashMap([4]u8),
 
+fonts: std.StringArrayHashMap([]const u8),
+
 // nodes: std.MultiArrayList(ViewNode),
 
 const Self = @This();
@@ -27,11 +29,13 @@ pub fn init(allocator: Allocator) !Self {
     return Self{
         .allocator = allocator,
         .colors = colors,
+        .fonts = std.StringArrayHashMap([]const u8).init(std.heap.c_allocator),
     };
 }
 
 pub const p = struct {
     class: []const u8,
+    text: []const u8 = "",
     on_click: ?*const fn () void = null,
     children: ?[]ViewNode = null,
 };
@@ -45,11 +49,15 @@ pub const Layout = struct {
 
 pub const ViewNode = struct {
     class: []const u8 = "",
+    text: []const u8 = "",
     on_click: ?*const fn () void = null,
     children: ?[]ViewNode = null,
     computed_layout: ?Layout = null,
     bg_color: [4]u8 = [4]u8{ 0, 0, 0, 0 },
+    text_color: [4]u8 = [4]u8{ 255, 255, 255, 255 },
+    text_size: f32 = 14.0,
     rounding: f32 = 0.0,
+    font_name: []const u8 = "default",
 };
 
 /// function to make a singular view node
@@ -58,10 +66,20 @@ pub fn v(self: *Self, props: p) ViewNode {
 
     return ViewNode{
         .class = props.class,
+        .text = props.text,
         .on_click = props.on_click,
         .children = props.children,
     };
 }
+
+// pub fn t(self: *Self, text: []const u8) ViewNode {
+//     _ = self; // autofix
+
+//     return ViewNode{
+//         .text = text,
+//         .children = null,
+//     };
+// }
 
 /// function to make an array of view nodes
 pub fn vv(self: *Self, children: []const ViewNode) []ViewNode {
@@ -100,6 +118,20 @@ fn get_class_value(prefix: []const u8, class: []const u8) ?f32 {
     return null;
 }
 
+fn get_class_slice(prefix: []const u8, class: []const u8) ?[]const u8 {
+    var splits = std.mem.split(u8, class, prefix);
+
+    std.debug.assert(splits.next() != null);
+
+    const maybe_value = splits.next();
+
+    if (maybe_value) |value| {
+        return value;
+    }
+
+    return null;
+}
+
 fn get_class_color(self: *Self, prefix: []const u8, class: []const u8) ?[4]u8 {
     var splits = std.mem.split(u8, class, prefix);
 
@@ -116,6 +148,11 @@ fn get_class_color(self: *Self, prefix: []const u8, class: []const u8) ?[4]u8 {
 
 const Style = struct {
     is_column: bool = false,
+    align_items: enum {
+        start,
+        center,
+        end,
+    } = .start,
 
     width: f32 = 0.0,
     height: f32 = 0.0,
@@ -131,6 +168,9 @@ const Style = struct {
     margin_bottom: f32 = 0.0,
 
     bg_color: [4]u8 = [4]u8{ 0, 0, 0, 0 },
+    text_color: [4]u8 = [4]u8{ 0, 0, 0, 0 },
+    text_size: f32 = 0.0,
+    font_name: []const u8 = "default",
 
     rounding: f32 = 0.0,
 };
@@ -232,6 +272,28 @@ fn get_style(self: *Self, class: []const u8) Style {
         if (get_class_value("rounded-", chunk)) |rounding| {
             style.rounding = rounding;
         }
+
+        if (get_class_value("text-", chunk)) |text_size| {
+            style.text_size = text_size;
+        }
+
+        if (get_class_slice("font-", chunk)) |font_name| {
+            style.font_name = font_name;
+        }
+
+        if (get_class_slice("items-", chunk)) |align_items| {
+            if (std.mem.eql(u8, align_items, "start")) {
+                style.align_items = .start;
+            }
+
+            if (std.mem.eql(u8, align_items, "center")) {
+                style.align_items = .center;
+            }
+
+            if (std.mem.eql(u8, align_items, "end")) {
+                style.align_items = .end;
+            }
+        }
     }
 
     return style;
@@ -254,14 +316,17 @@ const LayoutInput = struct {
 
 fn compute_layout_inner(self: *Self, node: *ViewNode, parent_style: *const Style, parent_layout_input: *LayoutInput) void {
     const style = self.get_style(node.class);
+    // TODO: fix this mess
     node.bg_color = style.bg_color;
     node.rounding = style.rounding;
+    node.text_size = style.text_size;
+    node.font_name = style.font_name;
 
     node.computed_layout = Layout{
         .width = style.width,
         .height = style.height,
-        .x = parent_layout_input.parent_size.width - parent_layout_input.space_available.width + parent_layout_input.offset.x,
-        .y = parent_layout_input.parent_size.height - parent_layout_input.space_available.height + parent_layout_input.offset.y,
+        .x = parent_layout_input.parent_size.width - parent_layout_input.space_available.width + parent_layout_input.offset.x + style.margin_left,
+        .y = parent_layout_input.parent_size.height - parent_layout_input.space_available.height + parent_layout_input.offset.y + style.margin_top,
     };
 
     if (parent_style.is_column) {
@@ -276,8 +341,8 @@ fn compute_layout_inner(self: *Self, node: *ViewNode, parent_style: *const Style
 
     var input = LayoutInput{
         .offset = .{
-            .x = node.computed_layout.?.x,
-            .y = node.computed_layout.?.y,
+            .x = node.computed_layout.?.x + style.padding_left,
+            .y = node.computed_layout.?.y + style.padding_top,
         },
         .parent_size = .{
             .width = style.width,

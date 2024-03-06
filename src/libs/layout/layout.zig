@@ -5,6 +5,7 @@ const c = @cImport({
 pub const LayId = c.lay_id;
 pub const LayContext = c.lay_context;
 pub const Rect = c.lay_vec4;
+pub const Size = c.lay_vec2;
 
 // pub const LayItem = struct {
 //     id: LayId,
@@ -17,6 +18,9 @@ pub const Rect = c.lay_vec4;
 
 pub const Layout = struct {
     ctx: c.lay_context = undefined,
+
+    pub const Rect = c.lay_vec4;
+    pub const Size = c.lay_vec2;
 
     // container flags
 

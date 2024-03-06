@@ -52,7 +52,55 @@ const Draw = struct {
     }
 };
 
-const RLFonts = std.StringArrayHashMap(rl.Font);
+// pub fn measure_func(self: *zui, node: *zui.ViewNode, known_width: f32, known_height: f32) Layout.Size {
+//     _ = self; // autofix
+//     _ = node; // autofix
+//     _ = known_width; // autofix
+//     _ = known_height; // autofix
+// }
+
+const Button = struct {
+    const Self = @This();
+
+    pub fn handle_click() void {
+        std.debug.print("clicked\n", .{});
+    }
+
+    pub fn list(ui: *zui, item: u8, _: usize) zui.ViewNode {
+        return ui.v(.{
+            .class = "text-16 text-black font-bold",
+            .text = ui.fmt("Contents of list item {d}", .{item}),
+        });
+    }
+
+    pub fn render(ui: *zui) zui.ViewNode {
+        return ui.v(.{
+            .class = "bg-blue col",
+            .children = ui.vv(&.{
+                // ui.v(.{
+                //     .class = "text-24 text-white",
+                //     .text = "hello world",
+                //     .on_click = handle_click,
+                // }),
+
+                // ui.v(.{
+                //     .class = "text-24 text-white",
+                //     .text = "hello world 2",
+                // }),
+
+                ui.v(.{
+                    .class = "bg-blue col",
+                    .children = ui.foreach(u8, list, &.{
+                        16,
+                        24,
+                    }),
+                }),
+            }),
+        });
+    }
+};
+
+pub const RLFonts = std.StringArrayHashMap(rl.Font);
 
 pub fn main() !void {
     const screenWidth = 1280;
@@ -84,40 +132,42 @@ pub fn main() !void {
     }
 
     var tree = ui.v(.{
-        .class = "bg-red col",
+        .class = "bg-red w-400 h-100 items-start row",
 
-        // make this always be an array
         .children = ui.vv(&.{
-            ui.v(.{
-                .class = "w-100 rounded-100 h-100 bg-yellow",
-                .children = ui.vv(&.{
-                    ui.v(.{
-                        .class = "w-50 h-50 bg-blue",
-                    }),
-                }),
-            }),
-            ui.v(.{
-                .class = "h-40  bg-green",
-                .children = ui.foreach(u8, forl, &.{
-                    4,
-                    2,
-                }),
-            }),
-            ui.v(.{
-                .class = ui.fmt("bg-{s} w-50 h-50", .{"blue"}),
-            }),
+            Button.render(&ui),
             // ui.v(.{
-            //     .class = "text-16",
-            //     .text = "hello world",
+            //     .class = "w-100 rounded-100 h-100 bg-yellow",
+            //     .children = ui.vv(&.{
+            //         ui.v(.{
+            //             .class = "w-50 h-50 bg-blue",
+            //         }),
+            //     }),
             // }),
             // ui.v(.{
-            //     .class = "text-16 font-bold",
-            //     .text = "hello world",
+            //     .class = "h-40  bg-green",
+            //     .children = ui.foreach(u8, forl, &.{
+            //         4,
+            //         2,
+            //     }),
+            // }),
+            // ui.v(.{
+            //     .class = "col bg-yellow",
+            //     .children = ui.vv(&.{
+            //         ui.v(.{
+            //             .class = "text-24 text-black",
+            //             .text = "hello world",
+            //         }),
+            //         ui.v(.{
+            //             .class = "text-18 font-bold text-black",
+            //             .text = "hello world",
+            //         }),
+            //     }),
             // }),
         }),
     });
 
-    ui.compute_layout(&tree);
+    ui.compute_layout(&tree, &rl_fonts);
 
     // Wait for the user to close the window.
     while (!rl.windowShouldClose()) {

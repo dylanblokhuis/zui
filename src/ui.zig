@@ -1,5 +1,7 @@
 const std = @import("std");
 const layout = @import("./libs/layout/layout.zig");
+const rl = @import("raylib");
+const RLFonts = @import("./main.zig").RLFonts;
 const Allocator = std.mem.Allocator;
 
 /// # remaining stuff
@@ -38,7 +40,7 @@ pub fn init(allocator: Allocator) !Self {
 }
 
 pub const p = struct {
-    class: []const u8,
+    class: []const u8 = "",
     text: []const u8 = "",
     on_click: ?*const fn () void = null,
     children: ?[]ViewNode = null,
@@ -88,6 +90,15 @@ pub fn vv(self: *Self, children: []const ViewNode) []ViewNode {
     return nodes;
 }
 
+///
+///
+/// example input:
+///
+/// ```zig
+/// pub fn list(ui: *zui, item: T, index: usize) zui.ViewNode {
+///    return ui.v(.{});
+/// }
+/// ```
 pub fn foreach(self: *Self, comptime T: type, cb: *const fn (self: *Self, item: T, index: usize) ViewNode, items: []const T) []ViewNode {
     var children = self.allocator.alloc(ViewNode, items.len) catch unreachable;
     for (items, 0..) |item, index| {
@@ -251,6 +262,10 @@ fn get_style(self: *Self, class: []const u8) Style {
             style.text_size = text_size;
         }
 
+        if (self.get_class_color("text-", chunk)) |color| {
+            style.text_color = color;
+        }
+
         if (get_class_slice("font-", chunk)) |font_name| {
             style.font_name = font_name;
         }
@@ -273,9 +288,11 @@ fn get_style(self: *Self, class: []const u8) Style {
     return style;
 }
 
-fn compute_layout_inner(self: *Self, node: *ViewNode, maybe_parent_layout_id: ?layout.LayId) void {
+fn compute_layout_inner(self: *Self, node: *ViewNode, fonts: *const RLFonts, maybe_parent_layout_id: ?layout.LayId) void {
+    std.log.debug("computing layout for node: {s}", .{node.class});
     const style = self.get_style(node.class);
     node.bg_color = style.bg_color;
+    node.text_color = style.text_color;
     node.rounding = style.rounding;
     node.text_size = style.text_size;
     node.font_name = style.font_name;
@@ -283,6 +300,18 @@ fn compute_layout_inner(self: *Self, node: *ViewNode, maybe_parent_layout_id: ?l
     const layout_id = self.layout.create_leaf();
 
     self.layout.set_size_xy(layout_id, style.width, style.height);
+
+    if (!std.mem.eql(u8, node.text, "")) {
+        const maybe_font = fonts.get(node.font_name);
+        if (maybe_font) |font| {
+            const font_size: [:0]const u8 = @ptrCast(node.text);
+            std.log.debug("font size: {d}", .{font_size.len});
+            const text_size = rl.measureTextEx(font, @ptrCast(node.text), style.text_size, 0.0);
+            std.log.debug("text size: {d} {d}", .{ @as(i16, @intFromFloat(text_size.x)), @as(i16, @intFromFloat(text_size.y)) });
+            self.layout.set_size_xy(layout_id, @as(i16, @intFromFloat(text_size.x)), @as(i16, @intFromFloat(text_size.y)));
+        }
+    }
+
     self.layout.set_margins_ltrb(layout_id, style.margin_left, style.margin_top, style.margin_right, style.margin_bottom);
 
     {
@@ -324,13 +353,15 @@ fn compute_layout_inner(self: *Self, node: *ViewNode, maybe_parent_layout_id: ?l
 
     if (node.children) |children| {
         for (children) |*child| {
-            compute_layout_inner(self, @constCast(child), layout_id);
+            compute_layout_inner(self, @constCast(child), fonts, layout_id);
         }
     }
 }
 
+// const MeasureFunc = fn (self: *Self, node: *ViewNode, known_width: f32, known_height: f32) layout.Size;
+
 /// computes the layout for the whole tree and sets the layout property
-pub fn compute_layout(self: *Self, root: *ViewNode) void {
-    self.compute_layout_inner(root, null);
+pub fn compute_layout(self: *Self, root: *ViewNode, fonts: *const RLFonts) void {
+    self.compute_layout_inner(root, fonts, null);
     self.layout.run();
 }

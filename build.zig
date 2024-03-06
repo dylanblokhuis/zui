@@ -46,6 +46,13 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const freetype = b.dependency("mach-freetype", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    exe.root_module.addImport("freetype", freetype.module("mach-freetype"));
+
     // exe.linkLibC();
 
     // // This declares intent for the executable to be installed into the

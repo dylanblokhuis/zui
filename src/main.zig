@@ -1,6 +1,7 @@
 const std = @import("std");
 const zui = @import("ui.zig");
 const rl = @import("raylib");
+const freetype = @import("freetype");
 const Layout = @import("./libs/layout//layout.zig").Layout;
 
 const Allocator = std.mem.Allocator;
@@ -29,6 +30,7 @@ const Draw = struct {
 
             if (!std.mem.eql(u8, node.text, "")) {
                 const maybe_font = fonts.get(node.font_name);
+                // std.log.debug("drawing text on {d} {d} with size {d}", .{ x, y, node.text_size });
                 if (maybe_font) |font| {
                     rl.drawTextEx(font, text, rl.Vector2.init(x, y), node.text_size, 0, rl.Color.init(node.text_color[0], node.text_color[1], node.text_color[2], node.text_color[3]));
                 } else {
@@ -68,14 +70,14 @@ const Button = struct {
 
     pub fn list(ui: *zui, item: u8, _: usize) zui.ViewNode {
         return ui.v(.{
-            .class = "text-16 text-black font-bold",
+            .class = "text-16 text-white ",
             .text = ui.fmt("Contents of list item {d}", .{item}),
         });
     }
 
     pub fn render(ui: *zui) zui.ViewNode {
         return ui.v(.{
-            .class = "bg-blue col",
+            .class = "bg-blue",
             .children = ui.vv(&.{
                 // ui.v(.{
                 //     .class = "text-24 text-white",
@@ -83,13 +85,13 @@ const Button = struct {
                 //     .on_click = handle_click,
                 // }),
 
-                // ui.v(.{
-                //     .class = "text-24 text-white",
-                //     .text = "hello world 2",
-                // }),
+                ui.v(.{
+                    .class = "text-36 text-white",
+                    .text = "hello world 2",
+                }),
 
                 ui.v(.{
-                    .class = "bg-blue col",
+                    .class = "bg-blue ",
                     .children = ui.foreach(u8, list, &.{
                         16,
                         24,
@@ -107,6 +109,7 @@ pub fn main() !void {
     const screenHeight = 720;
 
     rl.setConfigFlags(.flag_msaa_4x_hint);
+    rl.setConfigFlags(.flag_window_highdpi);
     rl.initWindow(screenWidth, screenHeight, "some-game");
     rl.setWindowMonitor(0);
     rl.setTargetFPS(0);
@@ -116,6 +119,90 @@ pub fn main() !void {
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
+
+    const lib = try freetype.Library.init();
+    defer lib.deinit();
+
+    const face = try lib.createFaceMemory(@embedFile("./Inter-Bold.ttf"), 0);
+    try face.setPixelSizes(0, 32);
+    try face.loadChar('x', .{ .render = true });
+    // try face.loadChar('y', .{ .render = true });
+
+    const GlyphInfo = struct {
+        // coords of the glyph in the texture
+        x0: u32,
+        y0: u32,
+        x1: u32,
+        y1: u32,
+        // left & top bearing
+        xoff: i32,
+        yoff: i32,
+        //
+        advance: i32,
+    };
+    const num_glyphs = 128;
+    const glyph_info = try arena.allocator().alloc(GlyphInfo, num_glyphs);
+    const max_dim: u32 = @intFromFloat(
+        @as(f32, @floatFromInt(1 + (face.size().metrics().height >> 6))) * std.math.ceil(std.math.sqrt(@as(f32, @floatFromInt(num_glyphs)))),
+    );
+
+    var tex_width: u32 = 1;
+    while (tex_width < max_dim) {
+        tex_width <<= 1;
+    }
+
+    std.log.debug("{d}", .{tex_width * tex_width});
+
+    const pixels = try arena.allocator().alloc(u8, tex_width * tex_width);
+    var pen_x: u32 = 0;
+    var pen_y: u32 = 0;
+
+    for (0..num_glyphs) |i| {
+        try face.loadChar(@intCast(i), .{ .render = true, .force_autohint = true, .target_light = true });
+        const bitmap = face.glyph().bitmap();
+
+        if (pen_x + bitmap.width() >= tex_width) {
+            pen_x = 0;
+            pen_y += @intCast(((face.size().metrics().height >> 6) + 1));
+        }
+
+        if (bitmap.buffer()) |buffer| {
+            for (0..bitmap.rows()) |row| {
+                for (0..bitmap.width()) |col| {
+                    const x = pen_x + col;
+                    const y = pen_y + row;
+                    const pitch: usize = @intCast(bitmap.pitch());
+                    pixels[y * tex_width + x] = buffer[row * pitch + col];
+                }
+            }
+        }
+
+        glyph_info[i] = .{
+            .x0 = pen_x,
+            .y0 = pen_y,
+            .x1 = pen_x + bitmap.width(),
+            .y1 = pen_y + bitmap.rows(),
+
+            .xoff = face.glyph().bitmapLeft(),
+            .yoff = face.glyph().bitmapTop(),
+            .advance = @intCast(face.glyph().advance().x >> 6),
+        };
+        pen_x += bitmap.width() + 1;
+    }
+
+    std.log.debug("{d}", .{tex_width});
+
+    // var bitmap = face.glyph().bitmap();
+    // defer bitmap.deinit(lib);
+
+    const fontTex = rl.loadTextureFromImage(rl.Image{
+        .data = pixels.ptr,
+        .width = @intCast(tex_width),
+        .height = @intCast(tex_width),
+        .format = .pixelformat_uncompressed_grayscale,
+        .mipmaps = 1,
+    });
+    defer fontTex.unload();
 
     var ui = try zui.init(arena.allocator());
 
@@ -128,42 +215,43 @@ pub fn main() !void {
     var iter = ui.fonts.iterator();
     while (iter.next()) |name| {
         const font_name_zeroed = std.fmt.allocPrintZ(arena.allocator(), "{s}", .{name.value_ptr.*}) catch unreachable;
-        try rl_fonts.put(name.key_ptr.*, rl.loadFont(font_name_zeroed));
+
+        try rl_fonts.put(name.key_ptr.*, rl.loadFontEx(font_name_zeroed, 256, null));
     }
 
     var tree = ui.v(.{
-        .class = "bg-red w-400 h-100 items-start row",
+        .class = "bg-red items-start row",
 
         .children = ui.vv(&.{
-            Button.render(&ui),
-            // ui.v(.{
-            //     .class = "w-100 rounded-100 h-100 bg-yellow",
-            //     .children = ui.vv(&.{
-            //         ui.v(.{
-            //             .class = "w-50 h-50 bg-blue",
-            //         }),
-            //     }),
-            // }),
-            // ui.v(.{
-            //     .class = "h-40  bg-green",
-            //     .children = ui.foreach(u8, forl, &.{
-            //         4,
-            //         2,
-            //     }),
-            // }),
-            // ui.v(.{
-            //     .class = "col bg-yellow",
-            //     .children = ui.vv(&.{
-            //         ui.v(.{
-            //             .class = "text-24 text-black",
-            //             .text = "hello world",
-            //         }),
-            //         ui.v(.{
-            //             .class = "text-18 font-bold text-black",
-            //             .text = "hello world",
-            //         }),
-            //     }),
-            // }),
+            // Button.render(&ui),
+            ui.v(.{
+                .class = "w-100 rounded-100 h-100 bg-yellow",
+                .children = ui.vv(&.{
+                    ui.v(.{
+                        .class = "w-50 h-50 bg-blue",
+                    }),
+                }),
+            }),
+            ui.v(.{
+                .class = "h-40  bg-green",
+                .children = ui.foreach(u8, forl, &.{
+                    4,
+                    2,
+                }),
+            }),
+            ui.v(.{
+                .class = "col bg-yellow",
+                .children = ui.vv(&.{
+                    ui.v(.{
+                        .class = "text-36 text-black",
+                        .text = "hello world",
+                    }),
+                    ui.v(.{
+                        .class = "text-18 font-bold text-black",
+                        .text = "hello world",
+                    }),
+                }),
+            }),
         }),
     });
 
@@ -176,7 +264,39 @@ pub fn main() !void {
 
         rl.drawFPS(screenWidth - 100, screenHeight - 30);
 
-        Draw.draw_node(&ui, &rl_fonts, &tree);
+        const text_to_render = "HELLo WORLD!";
+
+        var pos: i32 = 0;
+        for (text_to_render) |c| {
+            const glyph = glyph_info[@intCast(c)];
+
+            const src_rect = rl.Rectangle{
+                .width = @floatFromInt(glyph.x1 - glyph.x0),
+                .height = @floatFromInt(glyph.y1 - glyph.y0),
+                .x = @floatFromInt(glyph.x0),
+                .y = @floatFromInt(glyph.y0),
+            };
+
+            const position = rl.Vector2.init(
+                @floatFromInt(pos + glyph.xoff),
+                @as(f32, @floatFromInt(glyph.yoff)),
+            );
+
+            // std.log.debug("{any}", .{glyph});
+            rl.drawTextureRec(fontTex, src_rect, position, rl.Color.init(255, 255, 255, 255));
+            rl.drawRectangleLinesEx(.{
+                .width = src_rect.width,
+                .height = src_rect.height,
+                .x = position.x,
+                .y = position.y,
+            }, 1, rl.Color.init(255, 255, 255, 255));
+
+            pos += glyph.advance;
+        }
+
+        // rl.drawTexture(fontTex, 0, 0, rl.Color.init(255, 255, 255, 255));
+
+        // Draw.draw_node(&ui, &rl_fonts, &tree);
 
         rl.endDrawing();
     }

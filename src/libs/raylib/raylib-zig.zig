@@ -1402,8 +1402,10 @@ pub fn checkCollisionPointPoly(point: Vector2, points: []const Vector2) bool {
     return cdef.CheckCollisionPointPoly(point, @as([*c]Vector2, @ptrCast(points)), @as(c_int, @intCast(points.len)));
 }
 
-pub fn loadFontEx(fileName: [:0]const u8, fontSize: i32, fontChars: []i32) Font {
-    return cdef.LoadFontEx(@as([*c]const u8, @ptrCast(fileName)), @as(c_int, fontSize), @as([*c]c_int, @ptrCast(fontChars)), @as(c_int, @intCast(fontChars.len)));
+pub fn loadFontEx(fileName: [:0]const u8, fontSize: i32, fontChars: ?[]i32) Font {
+    const fontCharsLen = if (fontChars != null) fontChars.?.len else 0;
+
+    return cdef.LoadFontEx(@as([*c]const u8, @ptrCast(fileName)), @as(c_int, fontSize), @as([*c]c_int, @ptrCast(fontChars)), @as(c_int, @intCast(fontCharsLen)));
 }
 
 pub fn genImageFontAtlas(chars: []const GlyphInfo, recs: [][]Rectangle, fontSize: i32, padding: i32, packMethod: i32) Image {

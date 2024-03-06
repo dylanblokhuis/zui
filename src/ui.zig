@@ -304,10 +304,8 @@ fn compute_layout_inner(self: *Self, node: *ViewNode, fonts: *const RLFonts, may
     if (!std.mem.eql(u8, node.text, "")) {
         const maybe_font = fonts.get(node.font_name);
         if (maybe_font) |font| {
-            const font_size: [:0]const u8 = @ptrCast(node.text);
-            std.log.debug("font size: {d}", .{font_size.len});
-            const text_size = rl.measureTextEx(font, @ptrCast(node.text), style.text_size, 0.0);
-            std.log.debug("text size: {d} {d}", .{ @as(i16, @intFromFloat(text_size.x)), @as(i16, @intFromFloat(text_size.y)) });
+            const text = std.fmt.allocPrintZ(self.allocator, "{s}", .{node.text}) catch unreachable;
+            const text_size = rl.measureTextEx(font, text, style.text_size, 0.0);
             self.layout.set_size_xy(layout_id, @as(i16, @intFromFloat(text_size.x)), @as(i16, @intFromFloat(text_size.y)));
         }
     }

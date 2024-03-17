@@ -1,6 +1,7 @@
 const std = @import("std");
 const layout = @import("./libs/layout/layout.zig");
 const rl = @import("raylib");
+const fonts = @import("./mod/font.zig");
 const RLFonts = @import("./main.zig").RLFonts;
 const Allocator = std.mem.Allocator;
 
@@ -11,7 +12,9 @@ allocator: Allocator,
 
 colors: std.StringHashMap([4]u8),
 
-fonts: std.StringArrayHashMap([]const u8),
+fonts: fonts,
+
+font_name_to_desc: std.StringHashMap(fonts.FontDesc),
 
 layout: layout.Layout,
 
@@ -34,9 +37,15 @@ pub fn init(allocator: Allocator) !Self {
     return Self{
         .allocator = allocator,
         .colors = colors,
-        .fonts = std.StringArrayHashMap([]const u8).init(std.heap.c_allocator),
+        .fonts = fonts.init(allocator),
         .layout = try layout.Layout.init(),
+        .font_name_to_desc = std.StringHashMap(fonts.FontDesc).init(std.heap.c_allocator),
     };
+}
+
+pub fn load_font(self: *Self, name: []const u8, font_desc: fonts.FontDesc) !void {
+    try self.font_name_to_desc.put(name, font_desc);
+    try self.fonts.create_atlas(font_desc, self.allocator);
 }
 
 pub const p = struct {
@@ -288,7 +297,7 @@ fn get_style(self: *Self, class: []const u8) Style {
     return style;
 }
 
-fn compute_layout_inner(self: *Self, node: *ViewNode, fonts: *const RLFonts, maybe_parent_layout_id: ?layout.LayId) void {
+fn compute_layout_inner(self: *Self, node: *ViewNode, maybe_parent_layout_id: ?layout.LayId) void {
     std.log.debug("computing layout for node: {s}", .{node.class});
     const style = self.get_style(node.class);
     node.bg_color = style.bg_color;
@@ -302,11 +311,11 @@ fn compute_layout_inner(self: *Self, node: *ViewNode, fonts: *const RLFonts, may
     self.layout.set_size_xy(layout_id, style.width, style.height);
 
     if (!std.mem.eql(u8, node.text, "")) {
-        const maybe_font = fonts.get(node.font_name);
-        if (maybe_font) |font| {
-            const text = std.fmt.allocPrintZ(self.allocator, "{s}", .{node.text}) catch unreachable;
-            const text_size = rl.measureTextEx(font, text, style.text_size, 0.0);
-            self.layout.set_size_xy(layout_id, @as(i16, @intFromFloat(text_size.x)), @as(i16, @intFromFloat(text_size.y)));
+        const maybe_font = self.font_name_to_desc.get(node.font_name);
+        if (maybe_font) |font_desc| {
+            const atlas = self.fonts.atlases.get(font_desc).?;
+            const vec2 = atlas.measure(node.text);
+            self.layout.set_size_xy(layout_id, @as(i16, @intFromFloat(vec2[0])), @as(i16, @intFromFloat(vec2[1])));
         }
     }
 
@@ -351,7 +360,7 @@ fn compute_layout_inner(self: *Self, node: *ViewNode, fonts: *const RLFonts, may
 
     if (node.children) |children| {
         for (children) |*child| {
-            compute_layout_inner(self, @constCast(child), fonts, layout_id);
+            compute_layout_inner(self, @constCast(child), layout_id);
         }
     }
 }
@@ -359,7 +368,10 @@ fn compute_layout_inner(self: *Self, node: *ViewNode, fonts: *const RLFonts, may
 // const MeasureFunc = fn (self: *Self, node: *ViewNode, known_width: f32, known_height: f32) layout.Size;
 
 /// computes the layout for the whole tree and sets the layout property
-pub fn compute_layout(self: *Self, root: *ViewNode, fonts: *const RLFonts) void {
-    self.compute_layout_inner(root, fonts, null);
+pub fn compute_layout(
+    self: *Self,
+    root: *ViewNode,
+) void {
+    self.compute_layout_inner(root, null);
     self.layout.run();
 }

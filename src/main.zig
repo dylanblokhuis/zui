@@ -46,7 +46,9 @@ const Draw = struct {
                             .y = text_rect[3],
                         };
 
-                        const position = rl.Vector2.init(@floatFromInt(pos + glyph.xoff), @as(f32, @floatFromInt(atlas.font_size - as_u32(glyph.yoff))));
+                        const corrected_font_size = as_f32(atlas.font_size) / 1.5;
+                        const position = rl.Vector2.init(@floatFromInt(pos + glyph.xoff), corrected_font_size - as_f32(glyph.yoff));
+
                         const local_position = rl.Vector2.init(x + position.x, y + position.y);
 
                         rl.drawTextureRec(tex, src_rect, local_position, rl.Color.init(node.text_color[0], node.text_color[1], node.text_color[2], node.text_color[3]));
@@ -73,6 +75,7 @@ const Draw = struct {
 };
 
 const Button = struct {
+    number: u8 = 0,
     const Self = @This();
 
     pub fn handle_click() void {
@@ -88,13 +91,13 @@ const Button = struct {
 
     pub fn render(ui: *zui) zui.ViewNode {
         return ui.v(.{
-            .class = "bg-blue",
+            .class = "bg-blue col",
             .children = ui.vv(&.{
-                // ui.v(.{
-                //     .class = "text-24 text-white",
-                //     .text = "hello world",
-                //     .on_click = handle_click,
-                // }),
+                ui.v(.{
+                    .class = "text-24 text-white m-10",
+                    .text = "Click me!",
+                    .on_click = handle_click,
+                }),
 
                 ui.v(.{
                     .class = "text-36 text-white",
@@ -102,7 +105,7 @@ const Button = struct {
                 }),
 
                 ui.v(.{
-                    .class = "bg-blue ",
+                    .class = "bg-blue col",
                     .children = ui.foreach(u8, list, &.{
                         16,
                         24,
@@ -158,37 +161,9 @@ pub fn main() !void {
     }
 
     var tree = ui.v(.{
-        .class = "bg-red items-start row",
-
+        .class = "bg-red items-start col",
         .children = ui.vv(&.{
-            ui.v(.{
-                .class = "w-100 rounded-100 h-100 bg-yellow",
-                .children = ui.vv(&.{
-                    ui.v(.{
-                        .class = "w-50 h-50 bg-blue",
-                    }),
-                }),
-            }),
-            // ui.v(.{
-            //     .class = "h-40 bg-green",
-            //     .children = ui.foreach(u8, forl, &.{
-            //         4,
-            //         2,
-            //     }),
-            // }),
-            ui.v(.{
-                .class = "col bg-green ",
-                .children = ui.vv(&.{
-                    // ui.v(.{
-                    //     .class = "text-black",
-                    //     .text = "hello world",
-                    // }),
-                    ui.v(.{
-                        .class = "font-bold text-blue",
-                        .text = "hello world",
-                    }),
-                }),
-            }),
+            Button.render(&ui),
         }),
     });
 
@@ -198,6 +173,11 @@ pub fn main() !void {
     while (!rl.windowShouldClose()) {
         rl.beginDrawing();
         rl.clearBackground(rl.Color.black);
+
+        if (rl.isMouseButtonPressed(.mouse_button_left)) {
+            const pos = rl.getMousePosition();
+            ui.send_click_event(@Vector(2, f32){ pos.x, pos.y });
+        }
 
         Draw.draw_node(&ui, &rl_fonts, &tree);
 

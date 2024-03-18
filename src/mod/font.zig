@@ -134,7 +134,7 @@ const FontAtlas = struct {
 
         for (text) |c| {
             const glyph = self.glyph_infos[@intCast(c)];
-            const offset_y = @as(f32, @floatFromInt(self.font_size)) - @as(f32, @floatFromInt(glyph.yoff));
+            const offset_y = (@as(f32, @floatFromInt(self.font_size)) / 1.5) - @as(f32, @floatFromInt(glyph.yoff));
             width += glyph.advance;
             height = @max(height, offset_y + @as(f32, @floatFromInt(glyph.height())));
         }

@@ -1,8 +1,8 @@
 const std = @import("std");
-const layout = @import("./libs/layout/layout.zig");
+const layout = @import("libs/layout/layout.zig");
 const rl = @import("raylib");
-const fonts = @import("./mod/font.zig");
-const RLFonts = @import("./main.zig").RLFonts;
+const fonts = @import("mod/font.zig");
+const RLFonts = @import("main.zig").RLFonts;
 const Allocator = std.mem.Allocator;
 
 /// # remaining stuff
@@ -17,6 +17,8 @@ fonts: fonts,
 font_name_to_desc: std.StringHashMap(fonts.FontDesc),
 
 layout: layout.Layout,
+
+root: ?*ViewNode = null,
 
 // nodes: std.MultiArrayList(ViewNode),
 
@@ -79,15 +81,6 @@ pub fn v(self: *Self, props: p) ViewNode {
         .children = props.children,
     };
 }
-
-// pub fn t(self: *Self, text: []const u8) ViewNode {
-//     _ = self; // autofix
-
-//     return ViewNode{
-//         .text = text,
-//         .children = null,
-//     };
-// }
 
 /// function to make an array of view nodes
 pub fn vv(self: *Self, children: []const ViewNode) []ViewNode {
@@ -316,6 +309,8 @@ fn compute_layout_inner(self: *Self, node: *ViewNode, maybe_parent_layout_id: ?l
             const atlas = self.fonts.atlases.get(font_desc).?;
             const vec2 = atlas.measure(node.text);
             self.layout.set_size_xy(layout_id, @as(i16, @intFromFloat(vec2[0])), @as(i16, @intFromFloat(vec2[1])));
+        } else {
+            std.log.err("font not found while computing layout: {s}", .{node.font_name});
         }
     }
 
@@ -365,8 +360,6 @@ fn compute_layout_inner(self: *Self, node: *ViewNode, maybe_parent_layout_id: ?l
     }
 }
 
-// const MeasureFunc = fn (self: *Self, node: *ViewNode, known_width: f32, known_height: f32) layout.Size;
-
 /// computes the layout for the whole tree and sets the layout property
 pub fn compute_layout(
     self: *Self,
@@ -374,4 +367,53 @@ pub fn compute_layout(
 ) void {
     self.compute_layout_inner(root, null);
     self.layout.run();
+    self.root = root;
+}
+
+pub fn get_elements_on_position(self: *Self, position: @Vector(2, f32)) []*ViewNode {
+    const Recurse = struct {
+        nodes: std.ArrayListUnmanaged(*ViewNode),
+        position: @Vector(2, f32),
+
+        pub fn init(pos: @Vector(2, f32)) @This() {
+            return @This(){ .nodes = std.ArrayListUnmanaged(*ViewNode){}, .position = pos };
+        }
+
+        pub fn run(recurse: *@This(), zui: *Self, node: *ViewNode) void {
+            if (node.layout_id) |layout_id| {
+                const rect = zui.layout.get_rect(layout_id);
+                const x: f32 = @floatFromInt(rect[0]);
+                const y: f32 = @floatFromInt(rect[1]);
+                const width: f32 = @floatFromInt(rect[2]);
+                const height: f32 = @floatFromInt(rect[3]);
+
+                if (recurse.position[0] >= x and recurse.position[0] <= x + width and recurse.position[1] >= y and recurse.position[1] <= y + height) {
+                    recurse.nodes.append(zui.allocator, node) catch unreachable;
+                }
+
+                if (node.children) |children| {
+                    for (children) |*child| {
+                        recurse.run(zui, @constCast(child));
+                    }
+                }
+            }
+        }
+    };
+
+    var recurse = Recurse.init(position);
+    recurse.run(self, self.root.?);
+
+    return recurse.nodes.toOwnedSlice(self.allocator) catch unreachable;
+}
+
+pub fn send_click_event(self: *Self, mouse_position: @Vector(2, f32)) void {
+    const nodes = self.get_elements_on_position(mouse_position);
+
+    for (nodes) |node| {
+        if (node.on_click) |on_click| {
+            on_click();
+        }
+    }
+
+    // std.log.debug("{any}", .{nodes.ptr});
 }

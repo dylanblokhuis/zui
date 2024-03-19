@@ -21,24 +21,25 @@ const V = struct {
 const Listener = struct {
     func_ptr: *const fn (component: Component) void,
     component: Component,
+
+    pub fn call(self: @This()) void {
+        self.func_ptr(self.component);
+    }
 };
 
 const Ui = struct {
     allocator: Allocator,
-    nodes: std.ArrayListUnmanaged(Node),
 
     const Self = @This();
 
     pub fn init() Self {
         return Self{
             .allocator = std.heap.c_allocator,
-            .nodes = std.ArrayListUnmanaged(Node){},
         };
     }
 
     pub fn c(self: *Self, comptime component: anytype) Node {
         const interface: ComponentInterface = @constCast(&component).renderable(self);
-        // node.component = interface;
         return interface.render();
     }
 
@@ -106,11 +107,12 @@ const Ui = struct {
 const Component = struct {
     /// this ptr holds the actual component data, like your custom struct
     ptr: *anyopaque,
+    /// we store the ui pointer in the component so its easier to call methods
     ui: *Ui,
 
     const Self = @This();
 
-    pub fn cast(self: Self, T: type) *T {
+    pub inline fn cast(self: Self, T: type) *T {
         return @ptrCast(@alignCast(self.ptr));
     }
 
@@ -140,10 +142,7 @@ const Button = struct {
 
     pub fn list(component: Component, item: u8, index: usize) Node {
         _ = item; // autofix
-        _ = index; // autofix
-        return component.ui.v(.{
-            .class = "henkie5",
-        });
+        return component.ui.v(.{ .class = component.ui.fmt("hello {d}", .{index}) });
     }
 
     pub fn render(component: Component) Node {
@@ -195,6 +194,7 @@ pub fn d() void {
                 .class = "henkie",
             }),
             ui.c(Button{}),
+            ui.c(Button{}),
         }),
     });
 
@@ -203,7 +203,7 @@ pub fn d() void {
             std.debug.print("depth: {d}, node {s}\n", .{ depth, node.data.class });
 
             if (node.data.onclick) |listener| {
-                listener.func_ptr(listener.component);
+                listener.call();
             }
 
             if (node.first_child) |first_child| {

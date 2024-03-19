@@ -15,6 +15,12 @@ const Node = struct {
 const V = struct {
     class: []const u8 = "",
     children: ?[]Node = null,
+    onclick: ?Listener = null,
+};
+
+const Listener = struct {
+    func_ptr: *const fn (component: Component) void,
+    component: Component,
 };
 
 const Ui = struct {
@@ -31,8 +37,9 @@ const Ui = struct {
     }
 
     pub fn c(self: *Self, comptime component: anytype) Node {
-        const interface: ComponentInterface = @constCast(&component).renderable();
-        return interface.render(self);
+        const interface: ComponentInterface = @constCast(&component).renderable(self);
+        // node.component = interface;
+        return interface.render();
     }
 
     pub fn v(self: *Self, node: V) Node {
@@ -82,10 +89,10 @@ const Ui = struct {
     ///    return ui.v(.{});
     /// }
     /// ```
-    pub fn foreach(self: *Self, comptime T: type, cb: *const fn (self: *Self, item: T, index: usize) Node, items: []const T) []Node {
+    pub fn foreach(self: *Self, component: Component, comptime T: type, items: []const T, cb: *const fn (component: Component, item: T, index: usize) Node) []Node {
         var children = self.allocator.alloc(Node, items.len) catch unreachable;
         for (items, 0..) |item, index| {
-            children[index] = cb(self, item, index);
+            children[index] = cb(component, item, index);
         }
 
         return children;
@@ -93,6 +100,88 @@ const Ui = struct {
 
     pub fn fmt(self: *Self, comptime format: []const u8, args: anytype) []u8 {
         return std.fmt.allocPrint(self.allocator, format, args) catch unreachable;
+    }
+};
+
+const Component = struct {
+    /// this ptr holds the actual component data, like your custom struct
+    ptr: *anyopaque,
+    ui: *Ui,
+
+    const Self = @This();
+
+    pub fn cast(self: Self, T: type) *T {
+        return @ptrCast(@alignCast(self.ptr));
+    }
+
+    pub fn listener(self: Self, func_ptr: *const fn (c: Self) void) Listener {
+        return Listener{
+            .func_ptr = func_ptr,
+            .component = self,
+        };
+    }
+
+    pub fn foreach(self: Self, comptime T: type, items: []const T, cb: *const fn (component: Self, item: T, index: usize) Node) []Node {
+        return self.ui.foreach(self, T, items, cb);
+    }
+};
+
+const Button = struct {
+    henkie: u32 = 5,
+    some_array: [10]u8 = [10]u8{
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    },
+
+    pub fn onclick(component: Component) void {
+        const self = component.cast(@This());
+        self.henkie += 1;
+        std.debug.print("button clicked! {d}\n", .{self.henkie});
+    }
+
+    pub fn list(component: Component, item: u8, index: usize) Node {
+        _ = item; // autofix
+        _ = index; // autofix
+        return component.ui.v(.{
+            .class = "henkie5",
+        });
+    }
+
+    pub fn render(component: Component) Node {
+        const self = component.cast(@This());
+        const ui = component.ui;
+
+        return ui.v(.{
+            .class = "button!",
+            .children = ui.vv(&.{
+                ui.v(.{
+                    .class = "henkie2",
+                }),
+                ui.v(.{
+                    .class = "henkie3",
+                    .onclick = component.listener(Button.onclick),
+                }),
+                ui.v(.{
+                    .class = "henkie4",
+                    .children = component.foreach(u8, &self.some_array, Button.list),
+                }),
+            }),
+        });
+    }
+
+    pub fn renderable(self: *@This(), ui: *Ui) ComponentInterface {
+        return ComponentInterface{
+            .obj_ptr = Component{ .ptr = self, .ui = ui },
+            .func_ptr = @This().render,
+        };
+    }
+};
+
+const ComponentInterface = struct {
+    obj_ptr: Component,
+    func_ptr: *const fn (ptr: Component) Node,
+
+    pub fn render(self: @This()) Node {
+        return self.func_ptr(self.obj_ptr);
     }
 };
 
@@ -106,13 +195,17 @@ pub fn d() void {
                 .class = "henkie",
             }),
             ui.c(Button{}),
-            ui.c(AnotherButton{}),
         }),
     });
 
     const Recurse = struct {
         pub fn inner(self: *@This(), node: *Node, depth: u32) void {
             std.debug.print("depth: {d}, node {s}\n", .{ depth, node.data.class });
+
+            if (node.data.onclick) |listener| {
+                listener.func_ptr(listener.component);
+            }
+
             if (node.first_child) |first_child| {
                 self.inner(first_child, depth + 1);
             }
@@ -125,107 +218,3 @@ pub fn d() void {
     var recurse = Recurse{};
     recurse.inner(&tree, 0);
 }
-
-pub fn t() void {}
-
-const Button = struct {
-    henkie: u32 = 5,
-
-    pub fn render(ptr: *anyopaque, ui: *Ui) Node {
-        const self: *@This() = @ptrCast(@alignCast(ptr));
-        _ = self; // autofix
-
-        // this is all getting discarded in the arena, but how can we preserve something like this?
-
-        return ui.v(.{
-            .class = "button!",
-            .children = ui.vv(&.{
-                ui.v(.{
-                    .class = "henkie2",
-                }),
-                ui.v(.{
-                    .class = "henkie3",
-                }),
-            }),
-        });
-    }
-
-    pub fn renderable(self: *@This()) ComponentInterface {
-        return ComponentInterface{
-            .obj_ptr = self,
-            .func_ptr = @This().render,
-        };
-    }
-};
-
-const AnotherButton = struct {
-    sdfsdfdsfdf: u32 = 5,
-
-    pub fn list(ui: *Ui, item: u32, index: usize) Node {
-        _ = index; // autofix
-        return ui.v(.{
-            .class = ui.fmt("inside loop! {d}", .{item}),
-        });
-    }
-
-    pub fn render(ptr: *anyopaque, ui: *Ui) Node {
-        const self: *@This() = @ptrCast(@alignCast(ptr));
-
-        return ui.v(.{
-            .class = ui.fmt("Henkie! {d}", .{self.sdfsdfdsfdf}),
-            .children = ui.vv(&.{
-                ui.v(.{
-                    .class = "henkie2",
-                }),
-                ui.v(.{
-                    .class = "henkie3",
-                }),
-                ui.v(.{
-                    .children = ui.foreach(u32, @This().list, &.{
-                        1,
-                        2,
-                        3,
-                    }),
-                }),
-            }),
-        });
-    }
-
-    pub fn renderable(self: *@This()) ComponentInterface {
-        return ComponentInterface{
-            .obj_ptr = self,
-            .func_ptr = @This().render,
-        };
-    }
-};
-
-// const AnotherButton = struct {
-//     sdflkjsdflksdjklfs: u32 = 34342,
-
-//     pub fn render(ptr: *anyopaque, ui: *Ui) Node {
-//         _ = ui; // autofix
-//         const self: *@This() = @ptrCast(@alignCast(ptr));
-//         std.debug.print("rendering button {any}\n", .{self});
-
-//         return ui.v(.{
-//             .class = "AnotherButton!",
-//         });
-//     }
-
-//     pub fn renderable(self: *@This(), ui: *Ui) ComponentInterface {
-//         _ = ui; // autofix
-//         return ComponentInterface{
-//             .obj_ptr = self,
-//             .func_ptr = @This().render,
-//         };
-//     }
-// };
-
-const ComponentInterface = struct {
-    obj_ptr: *anyopaque,
-    func_ptr: *const fn (ptr: *anyopaque, ui: *Ui) Node,
-
-    pub fn render(self: @This(), ui: *Ui) Node {
-        return self.func_ptr(self.obj_ptr, ui);
-    }
-};

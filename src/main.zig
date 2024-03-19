@@ -3,6 +3,7 @@ const zui = @import("ui.zig");
 const rl = @import("raylib");
 const freetype = @import("freetype");
 const Layout = @import("./libs/layout//layout.zig").Layout;
+const xd = @import("mod/ui.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -119,72 +120,73 @@ const Button = struct {
 pub const RLFonts = std.StringArrayHashMap(rl.Texture);
 
 pub fn main() !void {
-    const screenWidth = 1280;
-    const screenHeight = 720;
+    xd.d();
+    // const screenWidth = 1280;
+    // const screenHeight = 720;
 
-    rl.setConfigFlags(.flag_msaa_4x_hint);
-    // rl.setConfigFlags(.flag_window_highdpi);
-    rl.initWindow(screenWidth, screenHeight, "some-game");
-    rl.setWindowMonitor(0);
-    rl.setTargetFPS(0);
+    // rl.setConfigFlags(.flag_msaa_4x_hint);
+    // // rl.setConfigFlags(.flag_window_highdpi);
+    // rl.initWindow(screenWidth, screenHeight, "some-game");
+    // rl.setWindowMonitor(0);
+    // rl.setTargetFPS(0);
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
+    // var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    // defer arena.deinit();
 
-    var ui = try zui.init(arena.allocator());
+    // var ui = try zui.init(arena.allocator());
 
-    try ui.load_font("default", .{
-        .path = "./assets/Inter-Regular.ttf",
-        .size = 16,
-    });
+    // try ui.load_font("default", .{
+    //     .path = "./assets/Inter-Regular.ttf",
+    //     .size = 16,
+    // });
 
-    try ui.load_font("bold", .{
-        .path = "./assets/Inter-Bold.ttf",
-        .size = 16,
-    });
+    // try ui.load_font("bold", .{
+    //     .path = "./assets/Inter-Bold.ttf",
+    //     .size = 16,
+    // });
 
-    var rl_fonts = RLFonts.init(arena.allocator());
-    {
-        var iter = ui.font_name_to_desc.iterator();
-        while (iter.next()) |item| {
-            const desc = item.value_ptr;
-            const atlas = ui.fonts.atlases.get(desc.*).?;
-            const tex = rl.loadTextureFromImage(rl.Image{
-                .data = atlas.data.ptr,
-                .width = @intCast(atlas.width),
-                .height = @intCast(atlas.height),
-                .format = .pixelformat_uncompressed_gray_alpha,
-                .mipmaps = 1,
-            });
-            try rl_fonts.put(item.key_ptr.*, tex);
-        }
-    }
+    // var rl_fonts = RLFonts.init(arena.allocator());
+    // {
+    //     var iter = ui.font_name_to_desc.iterator();
+    //     while (iter.next()) |item| {
+    //         const desc = item.value_ptr;
+    //         const atlas = ui.fonts.atlases.get(desc.*).?;
+    //         const tex = rl.loadTextureFromImage(rl.Image{
+    //             .data = atlas.data.ptr,
+    //             .width = @intCast(atlas.width),
+    //             .height = @intCast(atlas.height),
+    //             .format = .pixelformat_uncompressed_gray_alpha,
+    //             .mipmaps = 1,
+    //         });
+    //         try rl_fonts.put(item.key_ptr.*, tex);
+    //     }
+    // }
 
-    var tree = ui.v(.{
-        .class = "bg-red items-start col",
-        .children = ui.vv(&.{
-            Button.render(&ui),
-        }),
-    });
+    // var tree = ui.v(.{
+    //     .class = "bg-red items-start col",
+    //     .children = ui.vv(&.{
+    //         Button.render(&ui),
+    //     }),
+    // });
 
-    ui.compute_layout(&tree);
+    // ui.compute_layout(&tree);
 
-    // Wait for the user to close the window.
-    while (!rl.windowShouldClose()) {
-        rl.beginDrawing();
-        rl.clearBackground(rl.Color.black);
+    // // Wait for the user to close the window.
+    // while (!rl.windowShouldClose()) {
+    //     rl.beginDrawing();
+    //     rl.clearBackground(rl.Color.black);
 
-        if (rl.isMouseButtonPressed(.mouse_button_left)) {
-            const pos = rl.getMousePosition();
-            ui.send_click_event(@Vector(2, f32){ pos.x, pos.y });
-        }
+    //     if (rl.isMouseButtonPressed(.mouse_button_left)) {
+    //         const pos = rl.getMousePosition();
+    //         ui.send_click_event(@Vector(2, f32){ pos.x, pos.y });
+    //     }
 
-        Draw.draw_node(&ui, &rl_fonts, &tree);
+    //     Draw.draw_node(&ui, &rl_fonts, &tree);
 
-        rl.endDrawing();
-    }
+    //     rl.endDrawing();
+    // }
 
-    _ = arena.reset(.retain_capacity);
+    // _ = arena.reset(.retain_capacity);
 }
 
 inline fn as_f32(x: anytype) f32 {

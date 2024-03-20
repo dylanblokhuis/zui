@@ -1,20 +1,33 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const NodeData = union(enum) {
-    // component: ComponentInterface,
-    view: V,
+pub const Style = struct {
+    background_color: @Vector(4, u8) = @Vector(4, u8){ 255, 255, 255, 255 },
+    color: @Vector(4, u8) = @Vector(4, u8){ 0, 0, 0, 255 },
 };
 
-const Node = struct {
+pub const StyleOptions = struct {
+    colors: std.StringArrayHashMapUnmanaged(@Vector(4, u8)),
+
+    const Self = @This();
+
+    pub fn init() Self {
+        return Self{
+            .colors = std.StringArrayHashMapUnmanaged(@Vector(4, u8)){},
+        };
+    }
+};
+
+pub const Node = struct {
     data: V,
     layout: Layout = Layout{
         .size = @Vector(2, f32){ 0.0, 0.0 },
         .margins = @Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 },
         .behave = BehaveFlags{ .center = true },
-        .contain = ContainFlags{ .row = true, .flex = true, .nowrap = false, .middle = true },
+        .contain = ContainFlags{ .row = true, .flex = true, .wrap = true, .middle = true },
         .rect = @Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 },
     },
+    style: Style = Style{},
 
     first_child: ?*Node,
     next_sibling: ?*Node,
@@ -333,9 +346,9 @@ const Node = struct {
         }
     }
 
-    pub fn run_item(node: *Node) void {
+    pub fn run_item(node: *Node, options: *StyleOptions) void {
         // first we set the layout based on the classes
-        node.set_style();
+        node.set_style(options);
         // then we do our layout passes
         node.calc_size(0);
         node.arrange(0);
@@ -343,7 +356,7 @@ const Node = struct {
         node.arrange(1);
     }
 
-    fn set_style(self: *Node) void {
+    fn set_style(self: *Node, options: *StyleOptions) void {
         var classes = std.mem.splitSequence(u8, self.data.class, " ");
 
         while (classes.next()) |chunk| {
@@ -366,15 +379,38 @@ const Node = struct {
             if (get_class_value(f32, "h-", chunk)) |height| {
                 self.layout.size[1] = height;
             }
+
+            if (get_class_slice("bg-", chunk)) |color| {
+                self.style.background_color = options.colors.get(color) orelse blk: {
+                    std.debug.print("color not found: {s}\n", .{color});
+                    break :blk @Vector(4, u8){ 0, 0, 0, 255 };
+                };
+            }
         }
+
+        std.log.info("node {s}", .{self.data.class});
 
         var maybe_child = self.first_child;
         while (maybe_child) |child| {
-            child.set_style();
+            child.set_style(options);
             maybe_child = child.next_sibling;
         }
     }
 };
+
+fn get_class_slice(prefix: []const u8, class: []const u8) ?[]const u8 {
+    var splits = std.mem.split(u8, class, prefix);
+
+    std.debug.assert(splits.next() != null);
+
+    const maybe_value = splits.next();
+
+    if (maybe_value) |value| {
+        return value;
+    }
+
+    return null;
+}
 
 fn get_class_value(comptime T: type, prefix: []const u8, class: []const u8) ?T {
     var splits = std.mem.split(u8, class, prefix);
@@ -400,7 +436,7 @@ fn get_class_value(comptime T: type, prefix: []const u8, class: []const u8) ?T {
     return null;
 }
 
-const BehaveFlags = packed struct {
+const BehaveFlags = packed struct(u16) {
     left: bool = false,
     top: bool = false,
     right: bool = false,
@@ -419,9 +455,10 @@ const BehaveFlags = packed struct {
 
     /// break
     brk: bool = false,
+    _pad: u3 = 0,
 };
 
-const ContainFlags = packed struct {
+const ContainFlags = packed struct(u16) {
     /// left to right
     row: bool = false,
     /// top to bottom
@@ -445,6 +482,8 @@ const ContainFlags = packed struct {
     end: bool = false,
     /// justify-content-space-between
     between: bool = false,
+
+    _pad: u6 = 0,
 };
 
 const Layout = struct {
@@ -605,7 +644,7 @@ const Button = struct {
             .class = "button!",
             .children = ui.vv(&.{
                 ui.v(.{
-                    .class = "henkie2 w-40 h-50",
+                    .class = "henkie2 w-40 h-50 bg-blue",
                 }),
                 ui.v(.{
                     .class = "henkie3",
@@ -636,41 +675,54 @@ const ComponentInterface = struct {
     }
 };
 
-pub fn d() void {
+pub fn d() !Node {
     var ui = Ui.init();
 
     var tree = ui.v(.{
-        .class = "henkie",
+        .class = "henkie w-400 h-400 bg-white",
         .children = ui.vv(&.{
             ui.v(.{
-                .class = "child 1 w-40 h-50",
+                .class = "w-100 h-100 bg-red",
             }),
-            ui.c(Button{}),
-            ui.c(Button{}),
+            ui.v(.{
+                .class = "w-100 h-100 bg-blue",
+            }),
+            // ui.c(Button{}),
+            // ui.c(Button{}),
         }),
     });
 
-    tree.run_item();
+    var options = StyleOptions.init();
+    try options.colors.put(std.heap.c_allocator, "red", @Vector(4, u8){ 255, 0, 0, 255 });
+    try options.colors.put(std.heap.c_allocator, "green", @Vector(4, u8){ 0, 255, 0, 255 });
+    try options.colors.put(std.heap.c_allocator, "blue", @Vector(4, u8){ 0, 0, 255, 255 });
+    try options.colors.put(std.heap.c_allocator, "white", @Vector(4, u8){ 255, 255, 255, 255 });
+    try options.colors.put(std.heap.c_allocator, "black", @Vector(4, u8){ 0, 0, 0, 255 });
+    try options.colors.put(std.heap.c_allocator, "gray", @Vector(4, u8){ 128, 128, 128, 255 });
 
-    const Recurse = struct {
-        pub fn inner(self: *@This(), node: *Node, depth: u32) void {
-            std.debug.print("depth: {d}, node {s}\n", .{ depth, node.data.class });
-            std.debug.print("x {d} y {d} width {d} height {d}\n", .{ node.layout.rect[0], node.layout.rect[1], node.layout.rect[2], node.layout.rect[3] });
-            if (node.data.onclick) |listener| {
-                listener.call();
-            }
+    tree.run_item(&options);
 
-            if (node.first_child) |first_child| {
-                self.inner(first_child, depth + 1);
-            }
-            if (node.next_sibling) |next| {
-                self.inner(next, depth);
-            }
-        }
-    };
+    // const Recurse = struct {
+    //     pub fn inner(self: *@This(), node: *Node, depth: u32) void {
+    //         std.debug.print("depth: {d}, node {s}\n", .{ depth, node.data.class });
+    //         std.debug.print("x {d} y {d} width {d} height {d}\n", .{ node.layout.rect[0], node.layout.rect[1], node.layout.rect[2], node.layout.rect[3] });
+    //         if (node.data.onclick) |listener| {
+    //             listener.call();
+    //         }
 
-    var recurse = Recurse{};
-    recurse.inner(&tree, 0);
+    //         if (node.first_child) |first_child| {
+    //             self.inner(first_child, depth + 1);
+    //         }
+    //         if (node.next_sibling) |next| {
+    //             self.inner(next, depth);
+    //         }
+    //     }
+    // };
+
+    // var recurse = Recurse{};
+    // recurse.inner(&tree, 0);
+
+    return tree;
 
     // var recurse = Recurse{};
     // recurse.calc_size(&tree, 0, 0);

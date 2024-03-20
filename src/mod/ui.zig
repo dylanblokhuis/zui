@@ -23,8 +23,8 @@ pub const Node = struct {
     layout: Layout = Layout{
         .size = @Vector(2, f32){ 0.0, 0.0 },
         .margins = @Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 },
-        .behave = BehaveFlags{ .center = true },
-        .contain = ContainFlags{ .row = true, .flex = true, .wrap = true, .middle = true },
+        .behave = BehaveFlags{},
+        .contain = ContainFlags{},
         .rect = @Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 },
     },
     style: Style = Style{},
@@ -141,8 +141,10 @@ pub const Node = struct {
 
     pub fn arrange_stacked(node: *Node, dim: usize, wrap: bool) void {
         const wdim = dim + 2;
+
         const rect = node.layout.rect;
         const space: f32 = rect[2 + dim];
+
         const max_x2 = rect[dim] + space;
 
         var maybe_start_child = node.first_child;
@@ -161,11 +163,11 @@ pub const Node = struct {
 
             while (maybe_child) |child| {
                 var extend = used;
-                if (child.layout.behave.fill) {
+                if (child.layout.behave.hfill) {
                     count += 1;
                     extend += child.layout.rect[dim] + child.layout.margins[wdim];
                 } else {
-                    if (child.layout.behave.hfixed) {
+                    if (!child.layout.behave.hfixed) {
                         squeezed_count += 1;
                     }
                     extend += child.layout.rect[dim] + child.layout.rect[2 + dim] + child.layout.margins[wdim];
@@ -193,8 +195,10 @@ pub const Node = struct {
                 if (count > 0) {
                     filler = extra_space / @as(f32, @floatFromInt(count));
                 } else if (total > 0) {
-                    if (node.layout.contain.between and (!wrap or (end_child != null) and !hardbreak)) {
-                        spacer = extra_space / (@as(f32, @floatFromInt(total - 1)));
+                    if (node.layout.contain.between) {
+                        if (!wrap or (end_child != null) and !hardbreak) {
+                            spacer = extra_space / (@as(f32, @floatFromInt(total - 1)));
+                        }
                     }
                     if (node.layout.contain.start) {} else if (node.layout.contain.end) {
                         extra_margin = extra_space;
@@ -204,40 +208,44 @@ pub const Node = struct {
                 }
             } else if (!wrap and squeezed_count > 0) {
                 eater = extra_space / @as(f32, @floatFromInt(squeezed_count));
-                var x = rect[dim];
-                var x1: f32 = undefined;
-                maybe_child = start_child;
-                while (maybe_child) |child| {
-                    var ix0: f32 = undefined;
-                    var ix1: f32 = undefined;
-                    const child_margins = child.layout.margins;
-                    var child_rect = child.layout.rect;
+                // std.log.info("here!!!", .{});
+            }
 
-                    x += child_rect[dim] + extra_margin;
-                    if (child.layout.behave.hfill) {
-                        x1 = x + filler;
-                    } else if (child.layout.behave.hfixed) {
-                        x1 = x + child_rect[2 + dim];
-                    } else {
-                        x1 = x + @max(0.0, child_rect[2 + dim] + eater);
-                    }
+            var x = rect[dim];
+            var x1: f32 = undefined;
+            maybe_child = start_child;
+            while (maybe_child) |child| {
+                if (child == end_child) {
+                    break;
+                }
+                var ix0: f32 = undefined;
+                var ix1: f32 = undefined;
+                const child_margins = child.layout.margins;
+                var child_rect = child.layout.rect;
 
-                    ix0 = x;
-                    if (wrap) {
-                        ix1 = @min(max_x2 - child_margins[wdim], x1);
-                    } else {
-                        ix1 = x1;
-                    }
-                    child_rect[dim] = ix0; // pos
-                    child_rect[dim + 2] = ix1 - ix0; // size
-                    child.layout.rect = child_rect;
-                    x = x1 + child_margins[wdim];
-                    maybe_child = child.next_sibling;
-                    extra_margin = spacer;
+                x += child_rect[dim] + extra_margin;
+                if (child.layout.behave.hfill) {
+                    x1 = x + filler;
+                } else if (child.layout.behave.hfixed) {
+                    x1 = x + child_rect[2 + dim];
+                } else {
+                    x1 = x + @max(0.0, child_rect[2 + dim] + eater);
                 }
 
-                maybe_start_child = end_child;
+                ix0 = x;
+                if (wrap) {
+                    ix1 = @min(max_x2 - child_margins[wdim], x1);
+                } else {
+                    ix1 = x1;
+                }
+                child_rect[dim] = ix0; // pos
+                child_rect[dim + 2] = ix1 - ix0; // size
+                child.layout.rect = child_rect;
+                x = x1 + child_margins[wdim];
+                maybe_child = child.next_sibling;
+                extra_margin = spacer;
             }
+            maybe_start_child = end_child;
         }
     }
 
@@ -312,13 +320,13 @@ pub const Node = struct {
             need_size = @max(need_size, child_size);
             maybe_child = child.next_sibling;
         }
-        Node.arrange_overlay_squeezed_range(dim, maybe_start_child.?, null, offset, need_size);
+        Node.arrange_overlay_squeezed_range(dim, maybe_start_child, null, offset, need_size);
         offset += need_size;
         return offset;
     }
 
     pub fn arrange(node: *Node, dim: usize) void {
-        if (node.layout.contain.column or node.layout.contain.wrap) {
+        if (node.layout.contain.column and node.layout.contain.wrap) {
             if (dim != 0) {
                 node.arrange_stacked(1, true);
                 const offset = node.arrange_wrapped_overlay_squeezed(0);
@@ -339,6 +347,8 @@ pub const Node = struct {
             node.arrange_overlay(dim);
         }
 
+        std.log.info("here!", .{});
+
         var maybe_child = node.first_child;
         while (maybe_child) |child| {
             child.arrange(dim);
@@ -350,10 +360,16 @@ pub const Node = struct {
         // first we set the layout based on the classes
         node.set_style(options);
         // then we do our layout passes
+
+        std.log.info("calc_size", .{});
         node.calc_size(0);
+        std.log.info("arrange", .{});
         node.arrange(0);
+        std.log.info("calc_size 1", .{});
         node.calc_size(1);
+        std.log.info("arrange 1", .{});
         node.arrange(1);
+        std.log.info("done!", .{});
     }
 
     fn set_style(self: *Node, options: *StyleOptions) void {
@@ -380,11 +396,33 @@ pub const Node = struct {
                 self.layout.size[1] = height;
             }
 
+            if (get_class_value(f32, "m-", chunk)) |margin| {
+                self.layout.margins = @Vector(4, f32){ margin, margin, margin, margin };
+            }
+
             if (get_class_slice("bg-", chunk)) |color| {
                 self.style.background_color = options.colors.get(color) orelse blk: {
                     std.debug.print("color not found: {s}\n", .{color});
                     break :blk @Vector(4, u8){ 0, 0, 0, 255 };
                 };
+            }
+
+            if (get_class_slice("items-", chunk)) |align_items| {
+                if (std.mem.eql(u8, align_items, "start")) {
+                    self.layout.contain.start = true;
+                }
+
+                if (std.mem.eql(u8, align_items, "center")) {
+                    self.layout.contain.middle = true;
+                }
+
+                if (std.mem.eql(u8, align_items, "end")) {
+                    self.layout.contain.end = true;
+                }
+
+                if (std.mem.eql(u8, align_items, "between")) {
+                    self.layout.contain.between = true;
+                }
             }
         }
 
@@ -437,17 +475,27 @@ fn get_class_value(comptime T: type, prefix: []const u8, class: []const u8) ?T {
 }
 
 const BehaveFlags = packed struct(u16) {
+    /// anchor to left item or left side of parent
     left: bool = false,
+    /// anchor to top item or top side of parent
     top: bool = false,
+    /// anchor to right item or right side of parent
     right: bool = false,
+    /// anchor to bottom item or bottom side of parent
     bottom: bool = false,
 
+    /// anchor to both left and right item or parent borders
     hfill: bool = false,
+    /// anchor to both top and bottom item or parent borders
     vfill: bool = false,
-    hcenter: bool = false,
-    vcenter: bool = false,
+    /// center horizontally, with left margin as offset
+    hcenter: bool = true,
+    /// center vertically, with top margin as offset
+    vcenter: bool = true,
 
-    center: bool = false,
+    /// center in both directions, with left/top margin as offset
+    center: bool = true,
+    /// anchor to all four directions
     fill: bool = false,
 
     hfixed: bool = false,
@@ -465,23 +513,33 @@ const ContainFlags = packed struct(u16) {
     column: bool = false,
 
     /// free layout
-    layout: bool = false,
+    layout: bool = true,
     /// flex layout
     flex: bool = false,
 
     /// wrap flags, no wrap
-    nowrap: bool = false,
+    nowrap: bool = true,
     /// wrap flags, wrap
     wrap: bool = false,
 
     /// justify-content-start
     start: bool = false,
     /// justify-content-middle
-    middle: bool = false,
+    middle: bool = true,
     /// justify-content-end
     end: bool = false,
     /// justify-content-space-between
     between: bool = false,
+
+    // align-items
+    // can be implemented by putting a flex container in a layout container,
+    // then using LAY_TOP, LAY_BOTTOM, LAY_VFILL, LAY_VCENTER, etc.
+    // FILL is equivalent to stretch/grow
+
+    // align-content (start, end, center, stretch)
+    // can be implemented by putting a flex container in a layout container,
+    // then using LAY_TOP, LAY_BOTTOM, LAY_VFILL, LAY_VCENTER, etc.
+    // FILL is equivalent to stretch; space-between is not supported.
 
     _pad: u6 = 0,
 };
@@ -641,17 +699,17 @@ const Button = struct {
         const ui = component.ui;
 
         return ui.v(.{
-            .class = "button!",
+            .class = "button!  col wrap",
             .children = ui.vv(&.{
                 ui.v(.{
-                    .class = "henkie2 w-40 h-50 bg-blue",
+                    .class = "henkie2 w-40 h-20 bg-green",
                 }),
                 ui.v(.{
-                    .class = "henkie3",
+                    .class = "henkie3 w-20 h-40 bg-blue",
                     .onclick = component.listener(Button.onclick),
                 }),
                 ui.v(.{
-                    .class = "henkie4",
+                    .class = "henkie4 w-40 h-20 bg-red",
                     .children = component.foreach(u8, &self.some_array, Button.list),
                 }),
             }),
@@ -679,15 +737,15 @@ pub fn d() !Node {
     var ui = Ui.init();
 
     var tree = ui.v(.{
-        .class = "henkie w-400 h-400 bg-white",
+        .class = "henkie w-400 h-400 bg-white row m-10 wrap items-between",
         .children = ui.vv(&.{
             ui.v(.{
-                .class = "w-100 h-100 bg-red",
+                .class = "w-100 h-100 bg-red ",
             }),
             ui.v(.{
-                .class = "w-100 h-100 bg-blue",
+                .class = "w-100 h-50 bg-blue ",
             }),
-            // ui.c(Button{}),
+            ui.c(Button{}),
             // ui.c(Button{}),
         }),
     });

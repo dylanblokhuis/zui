@@ -9,7 +9,8 @@ const Allocator = std.mem.Allocator;
 
 pub const RLFonts = std.StringArrayHashMap(rl.Texture);
 
-pub fn render(node: *const xd.Node) void {
+pub fn render(node: *const xd.Node, depth: u32) void {
+    // std.debug.print("{s} {d}\n", .{ node.data.class, depth });
     rl.drawRectangleRec(.{
         .x = node.layout.rect[0],
         .y = node.layout.rect[1],
@@ -19,7 +20,7 @@ pub fn render(node: *const xd.Node) void {
 
     var maybe_child = node.first_child;
     while (maybe_child) |child| {
-        render(child);
+        render(child, depth + 1);
         maybe_child = child.next_sibling;
     }
 }
@@ -34,7 +35,7 @@ pub fn main() !void {
     // rl.setConfigFlags(.flag_window_highdpi);
     rl.initWindow(screenWidth, screenHeight, "some-game");
     rl.setWindowMonitor(0);
-    // rl.setTargetFPS(144);
+    rl.setTargetFPS(0);
 
     // // Wait for the user to close the window.
     while (!rl.windowShouldClose()) {
@@ -46,7 +47,7 @@ pub fn main() !void {
         //     ui.send_click_event(@Vector(2, f32){ pos.x, pos.y });
         // }
 
-        render(&node);
+        render(&node, 0);
 
         // Draw.draw_node(&ui, &rl_fonts, &tree);
 

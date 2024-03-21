@@ -109,14 +109,14 @@ pub fn main() !void {
         rl.clearBackground(rl.Color.black);
 
         const fps = rl.getFPS();
-        _ = fps; // autofix
 
         var tree = ui.v(.{
             .class = ui.fmt("w-{d} h-{d} bg-black", .{ screenWidth, screenHeight }),
             .children = ui.vv(&.{
-                // ui.v(.{
-                //     .class = "w-100 h-100  hover:rounding-0 bg-red hover:bg-blue b-center rounding-5",
-                // }),
+                ui.v(.{
+                    .class = "b-right b-bottom text-white m-10 font-bold",
+                    .text = ui.fmt("FPS: {d}", .{fps}),
+                }),
                 // ui.v(.{
                 //     .class = "bg-blue w-200 h-50 rounding-0.5 b-center",
                 //     .children = ui.vv(&.{

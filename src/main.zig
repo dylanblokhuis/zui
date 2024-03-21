@@ -61,7 +61,7 @@ pub fn main() !void {
     const screenWidth = 1280;
     const screenHeight = 720;
 
-    // rl.setConfigFlags(.flag_msaa_4x_hint);
+    rl.setConfigFlags(.flag_msaa_4x_hint);
     // rl.setConfigFlags(.flag_window_highdpi);
     rl.initWindow(screenWidth, screenHeight, "some-game");
     rl.setWindowMonitor(0);
@@ -108,33 +108,28 @@ pub fn main() !void {
         rl.beginDrawing();
         rl.clearBackground(rl.Color.black);
 
-        // if (rl.isMouseButtonPressed(.mouse_button_left)) {
-        //     const pos = rl.getMousePosition();
-        //     ui.send_click_event(@Vector(2, f32){ pos.x, pos.y });
-        // }
-
         const fps = rl.getFPS();
+        _ = fps; // autofix
 
         var tree = ui.v(.{
-            .class = "henkie w-400 h-400 bg-white col items-between m-20",
+            .class = ui.fmt("w-{d} h-{d} bg-black", .{ screenWidth, screenHeight }),
             .children = ui.vv(&.{
-                ui.v(.{
-                    .class = "w-100 h-100  hover:rounding-0 bg-red hover:bg-blue b-center rounding-5",
-                }),
-                ui.v(.{
-                    .class = "bg-blue w-200 h-50 rounding-0.5 b-center",
-                    .children = ui.vv(&.{
-                        ui.v(.{
-                            .class = "b-center text-white font-bold",
-                            .text = ui.fmt("FPS: {d}", .{fps}),
-                        }),
-                        // ui.v(.{
-                        //     .class = "behave-left behave-top",
-                        //     .text = "Hello world",
-                        // }),
-                    }),
-                }),
-                ui.c(mod_ui.Button{}),
+                // ui.v(.{
+                //     .class = "w-100 h-100  hover:rounding-0 bg-red hover:bg-blue b-center rounding-5",
+                // }),
+                // ui.v(.{
+                //     .class = "bg-blue w-200 h-50 rounding-0.5 b-center",
+                //     .children = ui.vv(&.{
+                //         ui.v(.{
+                //             .class = "b-center text-white font-bold",
+                //             .text = ui.fmt("FPS: {d}", .{fps}),
+                //         }),
+                //         // ui.v(.{
+                //         //     .class = "behave-left behave-top",
+                //         //     .text = "Hello world",
+                //         // }),
+                //     }),
+                // }),
                 ui.c(mod_ui.Button{}),
             }),
         });

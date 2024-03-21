@@ -860,7 +860,10 @@ pub const Button = struct {
 
     pub fn list(component: Component, item: u8, index: usize) Node {
         _ = item; // autofix
-        return component.ui.v(.{ .class = component.ui.fmt("hello {d} w-20 h-20 bg-black", .{index}) });
+        return component.ui.v(.{
+            .class = "text-white b-hcenter font-bold m-10",
+            .text = component.ui.fmt("item {d}", .{index}),
+        });
     }
 
     pub fn render(component: Component) Node {
@@ -878,7 +881,7 @@ pub const Button = struct {
                     .onclick = component.listener(Button.onclick),
                 }),
                 ui.v(.{
-                    .class = "bg-red flex col",
+                    .class = "bg-red row",
                     .children = component.foreach(u8, &self.some_array, Button.list),
                 }),
             }),

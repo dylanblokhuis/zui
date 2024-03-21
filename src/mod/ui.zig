@@ -1,9 +1,13 @@
 const std = @import("std");
+const fonts = @import("./font.zig");
 const Allocator = std.mem.Allocator;
 
 pub const Style = struct {
-    background_color: @Vector(4, u8) = @Vector(4, u8){ 255, 255, 255, 255 },
+    background_color: @Vector(4, u8) = @Vector(4, u8){ 0, 0, 0, 0 },
+    /// text color
     color: @Vector(4, u8) = @Vector(4, u8){ 0, 0, 0, 255 },
+    font_name: []const u8 = "default",
+    rounding: f32 = 0.0,
 };
 
 pub const StyleOptions = struct {
@@ -18,6 +22,30 @@ pub const StyleOptions = struct {
     }
 };
 
+pub const FontOptions = struct {
+    fonts: fonts,
+    font_name_to_desc: std.StringArrayHashMapUnmanaged(fonts.FontDesc),
+
+    const Self = @This();
+
+    pub fn init(allocator: Allocator) Self {
+        return Self{
+            .fonts = fonts.init(allocator),
+            .font_name_to_desc = std.StringArrayHashMapUnmanaged(fonts.FontDesc){},
+        };
+    }
+
+    pub fn load(self: *Self, allocator: Allocator, name: []const u8, font_desc: fonts.FontDesc) !void {
+        try self.font_name_to_desc.put(allocator, name, font_desc);
+        try self.fonts.create_atlas(font_desc, allocator);
+    }
+};
+
+pub const SelectorState = struct {
+    hover: bool = false,
+    focus: bool = false,
+};
+
 pub const Node = struct {
     data: V,
     layout: Layout = Layout{
@@ -28,6 +56,7 @@ pub const Node = struct {
         .rect = @Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 },
     },
     style: Style = Style{},
+    selector_state: SelectorState = SelectorState{},
 
     first_child: ?*Node,
     next_sibling: ?*Node,
@@ -163,11 +192,11 @@ pub const Node = struct {
 
             while (maybe_child) |child| {
                 var extend = used;
-                if (child.layout.behave.hfill) {
+                if ((dim == 0 and child.layout.behave.hfill) or (dim == 1 and child.layout.behave.vfill)) {
                     count += 1;
                     extend += child.layout.rect[dim] + child.layout.margins[wdim];
                 } else {
-                    if (!child.layout.behave.hfixed) {
+                    if ((dim == 0 and !child.layout.behave.hfixed) or (dim == 1 and !child.layout.behave.vfixed)) {
                         squeezed_count += 1;
                     }
                     extend += child.layout.rect[dim] + child.layout.rect[2 + dim] + child.layout.margins[wdim];
@@ -196,8 +225,8 @@ pub const Node = struct {
                     filler = extra_space / @as(f32, @floatFromInt(count));
                 } else if (total > 0) {
                     if (node.layout.contain.between) {
-                        if (!wrap or (end_child != null) and !hardbreak) {
-                            spacer = extra_space / (@as(f32, @floatFromInt(total - 1)));
+                        if (!wrap or (end_child != null and !hardbreak)) {
+                            spacer = extra_space / @as(f32, @floatFromInt(total));
                         }
                     }
                     if (node.layout.contain.start) {} else if (node.layout.contain.end) {
@@ -208,7 +237,6 @@ pub const Node = struct {
                 }
             } else if (!wrap and squeezed_count > 0) {
                 eater = extra_space / @as(f32, @floatFromInt(squeezed_count));
-                // std.log.info("here!!!", .{});
             }
 
             var x = rect[dim];
@@ -224,9 +252,9 @@ pub const Node = struct {
                 var child_rect = child.layout.rect;
 
                 x += child_rect[dim] + extra_margin;
-                if (child.layout.behave.hfill) {
+                if ((dim == 0 and child.layout.behave.hfill) or (dim == 1 and child.layout.behave.vfill)) {
                     x1 = x + filler;
-                } else if (child.layout.behave.hfixed) {
+                } else if ((dim == 0 and child.layout.behave.hfixed) or (dim == 1 and child.layout.behave.vfixed)) {
                     x1 = x + child_rect[2 + dim];
                 } else {
                     x1 = x + @max(0.0, child_rect[2 + dim] + eater);
@@ -260,11 +288,11 @@ pub const Node = struct {
             const child_margins = child.layout.margins;
             var child_rect = child.layout.rect;
 
-            if (child.layout.behave.hcenter) {
+            if ((dim == 0 and child.layout.behave.hcenter) or (dim == 1 and child.layout.behave.vcenter)) {
                 child_rect[dim] += (space - child_rect[2 + dim]) / 2 - child_margins[wdim];
-            } else if (child.layout.behave.right) {
+            } else if ((dim == 0 and child.layout.behave.right) or (dim == 1 and child.layout.behave.bottom)) {
                 child_rect[dim] += space - child_rect[2 + dim] - child_margins[dim] - child_margins[wdim];
-            } else if (child.layout.behave.hfill) {
+            } else if ((dim == 0 and child.layout.behave.hfill) or (dim == 1 and child.layout.behave.vfill)) {
                 child_rect[2 + dim] = @max(0.0, space - child_rect[dim] - child_margins[wdim]);
             }
 
@@ -284,13 +312,13 @@ pub const Node = struct {
             const margins = item.layout.margins;
             var rect = item.layout.rect;
             const min_size = @max(0, space - rect[dim] - margins[wdim]);
-            if (item.layout.behave.center) {
+            if ((dim == 0 and item.layout.behave.hcenter) or (dim == 1 and item.layout.behave.vcenter)) {
                 rect[2 + dim] = @min(rect[2 + dim], min_size);
                 rect[dim] += (space - rect[2 + dim]) / 2 - margins[wdim];
-            } else if (item.layout.behave.right) {
+            } else if ((dim == 0 and item.layout.behave.right) or (dim == 1 and item.layout.behave.bottom)) {
                 rect[2 + dim] = @min(rect[2 + dim], min_size);
                 rect[dim] += space - rect[2 + dim] - margins[wdim];
-            } else if (item.layout.behave.fill) {
+            } else if ((dim == 0 and item.layout.behave.hfill) or (dim == 1 and item.layout.behave.vfill)) {
                 rect[2 + dim] = min_size;
             } else {
                 rect[2 + dim] = @min(rect[2 + dim], min_size);
@@ -347,8 +375,6 @@ pub const Node = struct {
             node.arrange_overlay(dim);
         }
 
-        std.log.info("here!", .{});
-
         var maybe_child = node.first_child;
         while (maybe_child) |child| {
             child.arrange(dim);
@@ -356,82 +382,172 @@ pub const Node = struct {
         }
     }
 
-    pub fn run_item(node: *Node, options: *StyleOptions) void {
-        // first we set the layout based on the classes
-        node.set_style(options);
-        // then we do our layout passes
-
-        std.log.info("calc_size", .{});
-        node.calc_size(0);
-        std.log.info("arrange", .{});
-        node.arrange(0);
-        std.log.info("calc_size 1", .{});
-        node.calc_size(1);
-        std.log.info("arrange 1", .{});
-        node.arrange(1);
-        std.log.info("done!", .{});
-    }
-
-    fn set_style(self: *Node, options: *StyleOptions) void {
+    fn set_style(self: *Node, ui: *Ui) void {
         var classes = std.mem.splitSequence(u8, self.data.class, " ");
 
         while (classes.next()) |chunk| {
-            if (std.mem.eql(u8, chunk, "row")) {
-                self.layout.contain.row = true;
+            if (chunk.len > 6 and std.mem.eql(u8, chunk[0..6], "hover:")) {
+                continue;
             }
 
-            if (std.mem.eql(u8, chunk, "col")) {
-                self.layout.contain.column = true;
-            }
+            self.set_style_by_class(ui, chunk);
+        }
 
-            if (std.mem.eql(u8, chunk, "wrap")) {
-                self.layout.contain.wrap = true;
-            }
-
-            if (get_class_value(f32, "w-", chunk)) |width| {
-                self.layout.size[0] = width;
-            }
-
-            if (get_class_value(f32, "h-", chunk)) |height| {
-                self.layout.size[1] = height;
-            }
-
-            if (get_class_value(f32, "m-", chunk)) |margin| {
-                self.layout.margins = @Vector(4, f32){ margin, margin, margin, margin };
-            }
-
-            if (get_class_slice("bg-", chunk)) |color| {
-                self.style.background_color = options.colors.get(color) orelse blk: {
-                    std.debug.print("color not found: {s}\n", .{color});
-                    break :blk @Vector(4, u8){ 0, 0, 0, 255 };
-                };
-            }
-
-            if (get_class_slice("items-", chunk)) |align_items| {
-                if (std.mem.eql(u8, align_items, "start")) {
-                    self.layout.contain.start = true;
-                }
-
-                if (std.mem.eql(u8, align_items, "center")) {
-                    self.layout.contain.middle = true;
-                }
-
-                if (std.mem.eql(u8, align_items, "end")) {
-                    self.layout.contain.end = true;
-                }
-
-                if (std.mem.eql(u8, align_items, "between")) {
-                    self.layout.contain.between = true;
+        if (self.selector_state.hover) {
+            classes = std.mem.splitSequence(u8, self.data.class, " ");
+            while (classes.next()) |chunk| {
+                if (chunk.len > 6 and std.mem.eql(u8, chunk[0..6], "hover:")) {
+                    self.set_style_by_class(ui, chunk[6..]);
                 }
             }
         }
 
-        std.log.info("node {s}", .{self.data.class});
+        // add text size if no explicit size is set
+        if (!std.mem.eql(u8, self.data.text, "") and self.layout.size[0] == 0.0 and self.layout.size[1] == 0.0) {
+            const maybe_font = ui.font_name_to_desc.get(self.style.font_name);
+            if (maybe_font) |font_desc| {
+                const atlas = ui.fonts.atlases.get(font_desc).?;
+                self.layout.size = atlas.measure(self.data.text);
+            } else {
+                std.log.err("font not found while computing layout: {s}", .{self.style.font_name});
+            }
+        }
 
         var maybe_child = self.first_child;
         while (maybe_child) |child| {
-            child.set_style(options);
+            child.set_style(ui);
             maybe_child = child.next_sibling;
+        }
+    }
+
+    pub fn set_style_by_class(self: *Node, ui: *Ui, class: []const u8) void {
+        if (std.mem.eql(u8, class, "row")) {
+            self.layout.contain.row = true;
+            self.layout.contain.column = false;
+            self.layout.contain.wrap = true;
+        }
+
+        if (std.mem.eql(u8, class, "col")) {
+            self.layout.contain.row = false;
+            self.layout.contain.column = true;
+            self.layout.contain.wrap = true;
+        }
+
+        if (std.mem.eql(u8, class, "wrap")) {
+            self.layout.contain.wrap = true;
+            self.layout.contain.nowrap = false;
+        }
+
+        if (get_class_value(f32, "w-", class)) |width| {
+            self.layout.size[0] = width;
+        }
+
+        if (get_class_value(f32, "h-", class)) |height| {
+            self.layout.size[1] = height;
+        }
+
+        if (get_class_value(f32, "m-", class)) |f| {
+            self.layout.margins = @Vector(4, f32){ f, f, f, f };
+        }
+
+        if (get_class_value(f32, "rounding-", class)) |f| {
+            self.style.rounding = f;
+        }
+
+        if (get_class_slice("bg-", class)) |color| {
+            self.style.background_color = ui.style_options.colors.get(color) orelse blk: {
+                std.debug.print("color not found: {s}\n", .{color});
+                break :blk @Vector(4, u8){ 0, 0, 0, 255 };
+            };
+        }
+
+        if (get_class_slice("text-", class)) |color| {
+            self.style.color = ui.style_options.colors.get(color) orelse blk: {
+                std.debug.print("color not found: {s}\n", .{color});
+                break :blk @Vector(4, u8){ 0, 0, 0, 255 };
+            };
+        }
+
+        if (get_class_slice("items-", class)) |align_items| {
+            self.layout.contain.start = false;
+            self.layout.contain.middle = false;
+            self.layout.contain.end = false;
+            self.layout.contain.between = false;
+
+            if (std.mem.eql(u8, align_items, "start")) {
+                self.layout.contain.start = true;
+            }
+
+            if (std.mem.eql(u8, align_items, "center")) {
+                self.layout.contain.middle = true;
+            }
+
+            if (std.mem.eql(u8, align_items, "end")) {
+                self.layout.contain.end = true;
+            }
+
+            if (std.mem.eql(u8, align_items, "between")) {
+                self.layout.contain.between = true;
+            }
+        }
+
+        if (get_class_slice("font-", class)) |font_name| {
+            self.style.font_name = font_name;
+        }
+
+        if (get_class_slice("b-", class)) |behave| {
+            if (std.mem.eql(u8, behave, "left")) {
+                self.layout.behave.left = true;
+            }
+
+            if (std.mem.eql(u8, behave, "top")) {
+                self.layout.behave.top = true;
+            }
+
+            if (std.mem.eql(u8, behave, "right")) {
+                self.layout.behave.right = true;
+            }
+
+            if (std.mem.eql(u8, behave, "bottom")) {
+                self.layout.behave.bottom = true;
+            }
+
+            if (std.mem.eql(u8, behave, "hfill")) {
+                self.layout.behave.hfill = true;
+            }
+
+            if (std.mem.eql(u8, behave, "vfill")) {
+                self.layout.behave.vfill = true;
+            }
+
+            if (std.mem.eql(u8, behave, "hcenter")) {
+                self.layout.behave.hcenter = true;
+            }
+
+            if (std.mem.eql(u8, behave, "vcenter")) {
+                self.layout.behave.vcenter = true;
+            }
+
+            if (std.mem.eql(u8, behave, "center")) {
+                self.layout.behave.hcenter = true;
+                self.layout.behave.vcenter = true;
+            }
+
+            if (std.mem.eql(u8, behave, "fill")) {
+                self.layout.behave.fill = true;
+            }
+
+            if (std.mem.eql(u8, behave, "hfixed")) {
+                self.layout.behave.hfixed = true;
+            }
+
+            if (std.mem.eql(u8, behave, "vfixed")) {
+                self.layout.behave.vfixed = true;
+            }
+
+            if (std.mem.eql(u8, behave, "brk")) {
+                self.layout.behave.brk = true;
+            }
         }
     }
 };
@@ -474,6 +590,7 @@ fn get_class_value(comptime T: type, prefix: []const u8, class: []const u8) ?T {
     return null;
 }
 
+/// default is: center in both directions, with left/top margin as offset
 const BehaveFlags = packed struct(u16) {
     /// anchor to left item or left side of parent
     left: bool = false,
@@ -489,12 +606,10 @@ const BehaveFlags = packed struct(u16) {
     /// anchor to both top and bottom item or parent borders
     vfill: bool = false,
     /// center horizontally, with left margin as offset
-    hcenter: bool = true,
+    hcenter: bool = false,
     /// center vertically, with top margin as offset
-    vcenter: bool = true,
+    vcenter: bool = false,
 
-    /// center in both directions, with left/top margin as offset
-    center: bool = true,
     /// anchor to all four directions
     fill: bool = false,
 
@@ -503,7 +618,7 @@ const BehaveFlags = packed struct(u16) {
 
     /// break
     brk: bool = false,
-    _pad: u3 = 0,
+    _pad: u4 = 0,
 };
 
 const ContainFlags = packed struct(u16) {
@@ -556,6 +671,7 @@ const Layout = struct {
 
 const V = struct {
     class: []const u8 = "",
+    text: []const u8 = "",
     children: ?[]Node = null,
     onclick: ?Listener = null,
 };
@@ -569,24 +685,34 @@ const Listener = struct {
     }
 };
 
-const Ui = struct {
+pub const Ui = struct {
     allocator: Allocator,
+    arena: std.heap.ArenaAllocator,
+    style_options: StyleOptions,
+    fonts: fonts,
+    font_name_to_desc: std.StringArrayHashMapUnmanaged(fonts.FontDesc),
 
     const Self = @This();
 
-    pub fn init() Self {
+    pub fn init(allocator: Allocator) Self {
         return Self{
-            .allocator = std.heap.c_allocator,
+            .allocator = allocator,
+            .arena = std.heap.ArenaAllocator.init(allocator),
+            .style_options = StyleOptions.init(),
+            .fonts = fonts.init(allocator),
+            .font_name_to_desc = std.StringArrayHashMapUnmanaged(fonts.FontDesc){},
         };
     }
 
     pub fn c(self: *Self, comptime component: anytype) Node {
-        const interface: ComponentInterface = @constCast(&component).renderable(self);
+        var comp = self.arena.allocator().create(@TypeOf(component)) catch unreachable;
+        comp.* = component;
+        const interface: ComponentInterface = comp.renderable(self);
         return interface.render();
     }
 
     pub fn v(self: *Self, node: V) Node {
-        _ = self; // autofix
+        _ = self;
         var parent = Node{
             .data = node,
             .first_child = null,
@@ -616,7 +742,7 @@ const Ui = struct {
     }
 
     pub fn vv(self: *Self, children: []const Node) []Node {
-        const alloc_children = self.allocator.alloc(Node, children.len) catch unreachable;
+        const alloc_children = self.arena.allocator().alloc(Node, children.len) catch unreachable;
         for (children, 0..) |child, i| {
             alloc_children[i] = child;
         }
@@ -633,7 +759,7 @@ const Ui = struct {
     /// }
     /// ```
     pub fn foreach(self: *Self, component: Component, comptime T: type, items: []const T, cb: *const fn (component: Component, item: T, index: usize) Node) []Node {
-        var children = self.allocator.alloc(Node, items.len) catch unreachable;
+        var children = self.arena.allocator().alloc(Node, items.len) catch unreachable;
         for (items, 0..) |item, index| {
             children[index] = cb(component, item, index);
         }
@@ -642,15 +768,58 @@ const Ui = struct {
     }
 
     pub fn fmt(self: *Self, comptime format: []const u8, args: anytype) []u8 {
-        return std.fmt.allocPrint(self.allocator, format, args) catch unreachable;
+        return std.fmt.allocPrint(self.arena.allocator(), format, args) catch unreachable;
     }
 
-    // pub fn create_signal(self: *Self, comptime T: type, initial_value: T) type {
-    //     _ = self; // autofix
-    //     return struct {
-    //         value: T = initial_value,
-    //     };
-    // }
+    pub fn compute_layout(self: *Ui, node: *Node) void {
+        // first we set the layout based on the classes
+        node.set_style(self);
+
+        // then we do our layout passes
+        node.calc_size(0);
+        node.arrange(0);
+        node.calc_size(1);
+        node.arrange(1);
+    }
+
+    pub fn load_font(self: *Self, name: []const u8, font_desc: fonts.FontDesc) !void {
+        try self.font_name_to_desc.put(self.allocator, name, font_desc);
+        try self.fonts.create_atlas(font_desc, self.allocator);
+    }
+
+    pub fn handle_mouse_move_event(self: *Self, node: *Node, mouse_position: @Vector(2, f32)) void {
+        node.selector_state = SelectorState{};
+
+        // find the node that was clicked
+        // call the onclick listener
+        if (node.layout.rect[0] <= mouse_position[0] and
+            node.layout.rect[1] <= mouse_position[1] and
+            node.layout.rect[0] + node.layout.rect[2] >= mouse_position[0] and
+            node.layout.rect[1] + node.layout.rect[3] >= mouse_position[1])
+        {
+            node.selector_state.hover = true;
+        }
+
+        var maybe_child = node.first_child;
+        while (maybe_child) |child| {
+            self.handle_mouse_move_event(child, mouse_position);
+            maybe_child = child.next_sibling;
+        }
+    }
+
+    pub fn handle_click_event(self: *Self, node: *Node, mouse_position: @Vector(2, f32)) void {
+        // we can reuse the global hover state
+        if (node.selector_state.hover and node.data.onclick != null) {
+            std.debug.print("clicking  node {s}\n", .{node.data.class});
+            node.data.onclick.?.call();
+        }
+
+        var maybe_child = node.first_child;
+        while (maybe_child) |child| {
+            self.handle_click_event(child, mouse_position);
+            maybe_child = child.next_sibling;
+        }
+    }
 };
 
 const Component = struct {
@@ -677,7 +846,7 @@ const Component = struct {
     }
 };
 
-const Button = struct {
+pub const Button = struct {
     henkie: u32 = 5,
     some_array: [10]u8 = [10]u8{
         1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
@@ -691,7 +860,7 @@ const Button = struct {
 
     pub fn list(component: Component, item: u8, index: usize) Node {
         _ = item; // autofix
-        return component.ui.v(.{ .class = component.ui.fmt("hello {d}", .{index}) });
+        return component.ui.v(.{ .class = component.ui.fmt("hello {d} w-20 h-20 bg-black", .{index}) });
     }
 
     pub fn render(component: Component) Node {
@@ -699,17 +868,17 @@ const Button = struct {
         const ui = component.ui;
 
         return ui.v(.{
-            .class = "button!  col wrap",
+            .class = "col",
             .children = ui.vv(&.{
                 ui.v(.{
-                    .class = "henkie2 w-40 h-20 bg-green",
+                    .class = "w-40 h-20 bg-green",
                 }),
                 ui.v(.{
-                    .class = "henkie3 w-20 h-40 bg-blue",
+                    .class = "w-20 h-40 bg-blue",
                     .onclick = component.listener(Button.onclick),
                 }),
                 ui.v(.{
-                    .class = "henkie4 w-40 h-20 bg-red",
+                    .class = "bg-red flex col",
                     .children = component.foreach(u8, &self.some_array, Button.list),
                 }),
             }),
@@ -724,7 +893,7 @@ const Button = struct {
     }
 };
 
-const ComponentInterface = struct {
+pub const ComponentInterface = struct {
     obj_ptr: Component,
     func_ptr: *const fn (ptr: Component) Node,
 
@@ -732,57 +901,3 @@ const ComponentInterface = struct {
         return self.func_ptr(self.obj_ptr);
     }
 };
-
-pub fn d() !Node {
-    var ui = Ui.init();
-
-    var tree = ui.v(.{
-        .class = "henkie w-400 h-400 bg-white row m-10 wrap items-between",
-        .children = ui.vv(&.{
-            ui.v(.{
-                .class = "w-100 h-100 bg-red ",
-            }),
-            ui.v(.{
-                .class = "w-100 h-50 bg-blue ",
-            }),
-            ui.c(Button{}),
-            // ui.c(Button{}),
-        }),
-    });
-
-    var options = StyleOptions.init();
-    try options.colors.put(std.heap.c_allocator, "red", @Vector(4, u8){ 255, 0, 0, 255 });
-    try options.colors.put(std.heap.c_allocator, "green", @Vector(4, u8){ 0, 255, 0, 255 });
-    try options.colors.put(std.heap.c_allocator, "blue", @Vector(4, u8){ 0, 0, 255, 255 });
-    try options.colors.put(std.heap.c_allocator, "white", @Vector(4, u8){ 255, 255, 255, 255 });
-    try options.colors.put(std.heap.c_allocator, "black", @Vector(4, u8){ 0, 0, 0, 255 });
-    try options.colors.put(std.heap.c_allocator, "gray", @Vector(4, u8){ 128, 128, 128, 255 });
-
-    tree.run_item(&options);
-
-    // const Recurse = struct {
-    //     pub fn inner(self: *@This(), node: *Node, depth: u32) void {
-    //         std.debug.print("depth: {d}, node {s}\n", .{ depth, node.data.class });
-    //         std.debug.print("x {d} y {d} width {d} height {d}\n", .{ node.layout.rect[0], node.layout.rect[1], node.layout.rect[2], node.layout.rect[3] });
-    //         if (node.data.onclick) |listener| {
-    //             listener.call();
-    //         }
-
-    //         if (node.first_child) |first_child| {
-    //             self.inner(first_child, depth + 1);
-    //         }
-    //         if (node.next_sibling) |next| {
-    //             self.inner(next, depth);
-    //         }
-    //     }
-    // };
-
-    // var recurse = Recurse{};
-    // recurse.inner(&tree, 0);
-
-    return tree;
-
-    // var recurse = Recurse{};
-    // recurse.calc_size(&tree, 0, 0);
-    // recurse.calc_size(&tree, 1, 0);
-}

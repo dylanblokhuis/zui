@@ -110,8 +110,8 @@ pub fn main() !void {
 
         const fps = rl.getFPS();
 
-        var tree = ui.v(.{
-            .class = ui.fmt("w-{d} h-{d} bg-black", .{ screenWidth, screenHeight }),
+        var tree = ui.root(ui.v(.{
+            .class = ui.fmt("w-{d} h-{d}", .{ screenWidth, screenHeight }),
             .children = ui.vv(&.{
                 ui.v(.{
                     .class = "b-right b-bottom text-white m-10 font-bold",
@@ -130,9 +130,15 @@ pub fn main() !void {
                 //         // }),
                 //     }),
                 // }),
-                ui.c(mod_ui.Button{}),
+                ui.v(.{
+                    .class = "col",
+                    .children = ui.vv(&.{
+                        ui.c(mod_ui.Button{}),
+                        ui.c(mod_ui.Button{ .henkie = 10 }),
+                    }),
+                }),
             }),
-        });
+        }));
         ui.compute_layout(&tree);
 
         const pos = rl.getMousePosition();

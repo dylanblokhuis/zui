@@ -685,12 +685,41 @@ const Listener = struct {
     }
 };
 
+const ComponentKey = struct {
+    id: u32,
+    key: []const u8,
+
+    const ComponentKeyContext = struct {
+        pub fn hash(self: @This(), s: ComponentKey) u32 {
+            _ = self;
+
+            var h = std.hash.XxHash32.init(0);
+            h.update(s.key);
+
+            return h.final() + s.id;
+        }
+
+        pub fn eql(self: @This(), a: ComponentKey, b: ComponentKey, b_index: usize) bool {
+            _ = self;
+            _ = b_index;
+
+            if (a.id != b.id) {
+                return false;
+            }
+
+            return std.mem.eql(u8, a.key, b.key);
+        }
+    };
+};
+
 pub const Ui = struct {
     allocator: Allocator,
     arena: std.heap.ArenaAllocator,
     style_options: StyleOptions,
     fonts: fonts,
     font_name_to_desc: std.StringArrayHashMapUnmanaged(fonts.FontDesc),
+    counter: u32 = 0,
+    saved_components: std.ArrayHashMapUnmanaged(ComponentKey, ComponentInterface, ComponentKey.ComponentKeyContext, false),
 
     const Self = @This();
 
@@ -701,14 +730,30 @@ pub const Ui = struct {
             .style_options = StyleOptions.init(),
             .fonts = fonts.init(allocator),
             .font_name_to_desc = std.StringArrayHashMapUnmanaged(fonts.FontDesc){},
+            .saved_components = std.ArrayHashMapUnmanaged(ComponentKey, ComponentInterface, ComponentKey.ComponentKeyContext, false){},
         };
     }
 
     pub fn c(self: *Self, comptime component: anytype) Node {
-        var comp = self.arena.allocator().create(@TypeOf(component)) catch unreachable;
+        const existing_component = self.saved_components.get(ComponentKey{ .id = self.counter, .key = @typeName(@TypeOf(component)) });
+        if (existing_component) |component_interface| {
+            self.counter += 1;
+            return component_interface.render();
+        }
+
+        var comp = self.allocator.create(@TypeOf(component)) catch unreachable;
         comp.* = component;
         const interface: ComponentInterface = comp.renderable(self);
+
+        self.saved_components.put(self.allocator, ComponentKey{ .id = self.counter, .key = @typeName(@TypeOf(component)) }, interface) catch unreachable;
+        self.counter += 1;
+
         return interface.render();
+    }
+
+    pub fn root(self: *Self, node: Node) Node {
+        self.counter = 0;
+        return node;
     }
 
     pub fn v(self: *Self, node: V) Node {
@@ -848,9 +893,7 @@ const Component = struct {
 
 pub const Button = struct {
     henkie: u32 = 5,
-    some_array: [10]u8 = [10]u8{
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-    },
+    some_array: [3]u8 = [3]u8{ 1, 2, 3 },
 
     pub fn onclick(component: Component) void {
         const self = component.cast(@This());
@@ -861,7 +904,7 @@ pub const Button = struct {
     pub fn list(component: Component, item: u8, index: usize) Node {
         _ = item; // autofix
         return component.ui.v(.{
-            .class = "text-white b-hcenter font-bold m-10",
+            .class = "text-white b-hcenter font-bold m-10 ",
             .text = component.ui.fmt("item {d}", .{index}),
         });
     }
@@ -878,6 +921,7 @@ pub const Button = struct {
                 }),
                 ui.v(.{
                     .class = "w-20 h-40 bg-blue",
+                    .text = ui.fmt("button {d}", .{self.henkie}),
                     .onclick = component.listener(Button.onclick),
                 }),
                 ui.v(.{

@@ -117,19 +117,7 @@ pub fn main() !void {
                     .class = "b-right b-bottom text-white m-10 font-bold",
                     .text = ui.fmt("FPS: {d}", .{fps}),
                 }),
-                // ui.v(.{
-                //     .class = "bg-blue w-200 h-50 rounding-0.5 b-center",
-                //     .children = ui.vv(&.{
-                //         ui.v(.{
-                //             .class = "b-center text-white font-bold",
-                //             .text = ui.fmt("FPS: {d}", .{fps}),
-                //         }),
-                //         // ui.v(.{
-                //         //     .class = "behave-left behave-top",
-                //         //     .text = "Hello world",
-                //         // }),
-                //     }),
-                // }),
+
                 ui.v(.{
                     .class = "col",
                     .children = ui.vv(&.{

@@ -1,5 +1,6 @@
 const std = @import("std");
 const fonts = @import("./font.zig");
+const any = @import("../libs/any-pointer.zig");
 const Allocator = std.mem.Allocator;
 
 pub const Style = struct {
@@ -712,6 +713,13 @@ const ComponentKey = struct {
     };
 };
 
+pub const State = struct {};
+
+pub const ComponentInterface = struct {
+    obj_ptr: Component,
+    func_ptr: *const fn (ptr: Component) Node,
+};
+
 pub const Ui = struct {
     allocator: Allocator,
     arena: std.heap.ArenaAllocator,
@@ -720,6 +728,8 @@ pub const Ui = struct {
     font_name_to_desc: std.StringArrayHashMapUnmanaged(fonts.FontDesc),
     counter: u32 = 0,
     saved_components: std.ArrayHashMapUnmanaged(ComponentKey, ComponentInterface, ComponentKey.ComponentKeyContext, false),
+    hooks: std.ArrayListUnmanaged(any.AnyPointer) = std.ArrayListUnmanaged(any.AnyPointer){},
+    hooks_counter: u32 = 0,
 
     const Self = @This();
 
@@ -735,24 +745,27 @@ pub const Ui = struct {
     }
 
     pub fn c(self: *Self, comptime component: anytype) Node {
-        const existing_component = self.saved_components.get(ComponentKey{ .id = self.counter, .key = @typeName(@TypeOf(component)) });
-        if (existing_component) |component_interface| {
+        var comp = self.arena.allocator().create(@TypeOf(component)) catch unreachable;
+        comp.* = component;
+
+        const existing_component = self.saved_components.getPtr(ComponentKey{ .id = self.counter, .key = @typeName(@TypeOf(component)) });
+        if (existing_component) |existing_interface| {
+            existing_interface.obj_ptr.ptr = comp;
+
             self.counter += 1;
-            return component_interface.render();
+            return existing_interface.func_ptr(existing_interface.obj_ptr);
         }
 
-        var comp = self.allocator.create(@TypeOf(component)) catch unreachable;
-        comp.* = component;
         const interface: ComponentInterface = comp.renderable(self);
-
         self.saved_components.put(self.allocator, ComponentKey{ .id = self.counter, .key = @typeName(@TypeOf(component)) }, interface) catch unreachable;
         self.counter += 1;
 
-        return interface.render();
+        return interface.func_ptr(interface.obj_ptr);
     }
 
     pub fn root(self: *Self, node: Node) Node {
         self.counter = 0;
+        self.hooks_counter = 0;
         return node;
     }
 
@@ -891,14 +904,51 @@ const Component = struct {
     }
 };
 
+pub fn create_ref(
+    comptime T: type,
+) type {
+    return struct {
+        value: *T,
+        component: Component,
+
+        pub fn init(
+            component: Component,
+            initial_value: T,
+        ) @This() {
+            if (component.ui.hooks.items.len > component.ui.hooks_counter) {
+                const hook = component.ui.hooks.items[component.ui.hooks_counter].cast(*T);
+                component.ui.hooks_counter += 1;
+                return @This(){ .value = hook, .component = component };
+            }
+
+            const ptr = component.ui.allocator.create(T) catch unreachable;
+            ptr.* = initial_value;
+            const make = any.AnyPointer.make(*T, ptr);
+            component.ui.hooks.append(component.ui.allocator, make) catch unreachable;
+            component.ui.hooks_counter += 1;
+
+            return @This(){ .value = make.cast(*T), .component = component };
+        }
+
+        pub inline fn get(self: @This()) T {
+            return self.value.*;
+        }
+
+        pub inline fn set(self: @This(), value: T) void {
+            self.value.* = value;
+        }
+    };
+}
+
 pub const Button = struct {
     henkie: u32 = 5,
     some_array: [3]u8 = [3]u8{ 1, 2, 3 },
+    signal: create_ref(u32) = undefined,
 
     pub fn onclick(component: Component) void {
         const self = component.cast(@This());
-        self.henkie += 1;
-        std.debug.print("button clicked! {d}\n", .{self.henkie});
+        self.signal.set(self.signal.get() + 1);
+        std.debug.print("button clicked! {d}\n", .{self.signal.value.*});
     }
 
     pub fn list(component: Component, item: u8, index: usize) Node {
@@ -912,6 +962,7 @@ pub const Button = struct {
     pub fn render(component: Component) Node {
         const self = component.cast(@This());
         const ui = component.ui;
+        self.signal = create_ref(u32).init(component, self.henkie);
 
         return ui.v(.{
             .class = "col",
@@ -920,8 +971,8 @@ pub const Button = struct {
                     .class = "w-40 h-20 bg-green",
                 }),
                 ui.v(.{
-                    .class = "w-20 h-40 bg-blue",
-                    .text = ui.fmt("button {d}", .{self.henkie}),
+                    .class = "bg-blue text-white",
+                    .text = ui.fmt("button {d}", .{self.signal.value.*}),
                     .onclick = component.listener(Button.onclick),
                 }),
                 ui.v(.{
@@ -937,14 +988,5 @@ pub const Button = struct {
             .obj_ptr = Component{ .ptr = self, .ui = ui },
             .func_ptr = @This().render,
         };
-    }
-};
-
-pub const ComponentInterface = struct {
-    obj_ptr: Component,
-    func_ptr: *const fn (ptr: Component) Node,
-
-    pub fn render(self: @This()) Node {
-        return self.func_ptr(self.obj_ptr);
     }
 };

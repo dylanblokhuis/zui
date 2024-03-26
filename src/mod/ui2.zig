@@ -25,7 +25,7 @@ pub const Options = struct {
 };
 
 pub const Dom = struct {
-    nodes: std.ArrayList(Node),
+    nodes: std.ArrayListUnmanaged(Node) = std.ArrayListUnmanaged(Node){},
     allocator: Allocator,
     options: *const Options,
 
@@ -36,7 +36,6 @@ pub const Dom = struct {
 
     pub fn init(allocator: Allocator, options: *const Options) Self {
         return Self{
-            .nodes = std.ArrayList(Node).init(allocator),
             .allocator = allocator,
             .options = options,
         };
@@ -70,7 +69,7 @@ pub const Dom = struct {
     }
 
     pub fn view(self: *Self, attributes: NodeAttributes) Self.NodeId {
-        self.nodes.append(Node.init(attributes, self.options)) catch unreachable;
+        self.nodes.append(self.allocator, Node.init(attributes, self.options)) catch unreachable;
         const parent_id = self.nodes.items.len - 1;
 
         if (attributes.children) |children| {
@@ -182,6 +181,7 @@ pub fn replace(prev: ?*Dom, next: *Dom, prev_node: Dom.NodeId, next_node: Dom.No
         if (maybe_yg_node) |yg_node| {
             c.YGNodeFreeRecursive(yg_node);
         }
+        _ = yoga_elements.remove(prev_node);
     }
 
     const yg_node = c.YGNodeNew();
@@ -260,13 +260,90 @@ pub fn apply_layout_style(yg_node: c.YGNodeRef, options: *const Options, class: 
         c.YGNodeStyleSetPadding(yg_node, c.YGEdgeAll, padding);
     }
 
-    // c.YGNodeStyleSetPositionType(yg_node, c.YGPositionTypeRelative);
-    // c.YGNodeStyleSetDisplay(yg_node, c.YGDisplayFlex);
-    // c.YGNodeStyleSetFlexDirection(yg_node, c.YGFlexDirectionColumn);
+    if (std.mem.eql(u8, "relative", class)) {
+        c.YGNodeStyleSetPositionType(yg_node, c.YGPositionTypeRelative);
+    }
 
-    // c.YGNodeStyleSetWidth(node, c.YGValue{.value = 200, .unit = c.YGUnitPoint});
-    // c.YGNodeStyleSetHeight(node, c.YGValue{.value = 200, .unit = c.YGUnitPoint});
-    // c.YGNodeStyleSetMargin(node, c.YGEdgeAll, 10.0);
+    if (std.mem.eql(u8, "absolute", class)) {
+        c.YGNodeStyleSetPositionType(yg_node, c.YGPositionTypeAbsolute);
+    }
+
+    // display
+    if (std.mem.eql(u8, "flex", class)) {
+        c.YGNodeStyleSetDisplay(yg_node, c.YGDisplayFlex);
+    }
+
+    if (std.mem.eql(u8, "hidden", class)) {
+        c.YGNodeStyleSetDisplay(yg_node, c.YGDisplayNone);
+    }
+
+    // flex direction
+    if (std.mem.eql(u8, "flex-col", class)) {
+        c.YGNodeStyleSetFlexDirection(yg_node, c.YGFlexDirectionColumn);
+    }
+
+    if (std.mem.eql(u8, "flex-row", class)) {
+        c.YGNodeStyleSetFlexDirection(yg_node, c.YGFlexDirectionRow);
+    }
+
+    // wrapping
+    if (std.mem.eql(u8, "flex-wrap", class)) {
+        c.YGNodeStyleSetFlexWrap(yg_node, c.YGWrapWrap);
+    }
+
+    if (std.mem.eql(u8, "flex-nowrap", class)) {
+        c.YGNodeStyleSetFlexWrap(yg_node, c.YGWrapNoWrap);
+    }
+
+    if (std.mem.eql(u8, "flex-wrap-reverse", class)) {
+        c.YGNodeStyleSetFlexWrap(yg_node, c.YGWrapWrapReverse);
+    }
+
+    // items-*
+    if (get_class_slice("items-", class)) |align_items| {
+        if (std.mem.eql(u8, "start", align_items)) {
+            c.YGNodeStyleSetAlignItems(yg_node, c.YGAlignFlexStart);
+        }
+
+        if (std.mem.eql(u8, "center", align_items)) {
+            c.YGNodeStyleSetAlignItems(yg_node, c.YGAlignCenter);
+        }
+
+        if (std.mem.eql(u8, "end", align_items)) {
+            c.YGNodeStyleSetAlignItems(yg_node, c.YGAlignFlexEnd);
+        }
+
+        if (std.mem.eql(u8, "stretch", align_items)) {
+            c.YGNodeStyleSetAlignItems(yg_node, c.YGAlignStretch);
+        }
+    }
+
+    // justify-*
+    if (get_class_slice("justify-", class)) |justify_content| {
+        if (std.mem.eql(u8, "start", justify_content)) {
+            c.YGNodeStyleSetJustifyContent(yg_node, c.YGJustifyFlexStart);
+        }
+
+        if (std.mem.eql(u8, "center", justify_content)) {
+            c.YGNodeStyleSetJustifyContent(yg_node, c.YGJustifyCenter);
+        }
+
+        if (std.mem.eql(u8, "end", justify_content)) {
+            c.YGNodeStyleSetJustifyContent(yg_node, c.YGJustifyFlexEnd);
+        }
+
+        if (std.mem.eql(u8, "between", justify_content)) {
+            c.YGNodeStyleSetJustifyContent(yg_node, c.YGJustifySpaceBetween);
+        }
+
+        if (std.mem.eql(u8, "around", justify_content)) {
+            c.YGNodeStyleSetJustifyContent(yg_node, c.YGJustifySpaceAround);
+        }
+
+        if (std.mem.eql(u8, "evenly", justify_content)) {
+            c.YGNodeStyleSetJustifyContent(yg_node, c.YGJustifySpaceEvenly);
+        }
+    }
 }
 
 pub fn diff(prev_dom: ?*Dom, next_dom: *Dom, prev_node: Dom.NodeId, next_node: Dom.NodeId, mutations: *std.ArrayList(Mutation)) !void {
@@ -290,8 +367,6 @@ pub fn diff(prev_dom: ?*Dom, next_dom: *Dom, prev_node: Dom.NodeId, next_node: D
                 },
             });
         }
-
-        std.log.info("{s} - {s}", .{ prev.attributes.class, next.attributes.class });
 
         // class is different, we update the node
         if (!std.mem.eql(u8, prev.attributes.class, next.attributes.class)) {
@@ -326,6 +401,9 @@ pub fn diff(prev_dom: ?*Dom, next_dom: *Dom, prev_node: Dom.NodeId, next_node: D
             try diff(prev_dom, next_dom, maybe_prev_child, maybe_next_child, mutations);
         }
 
+        if (maybe_prev_child == Dom.InvalidNodeId) {
+            break;
+        }
         maybe_prev_child = prev_dom.?.nodes.items[maybe_prev_child].next_sibling;
         maybe_next_child = next_dom.nodes.items[maybe_next_child].next_sibling;
     }
@@ -334,6 +412,7 @@ pub fn diff(prev_dom: ?*Dom, next_dom: *Dom, prev_node: Dom.NodeId, next_node: D
 const NodeAttributes = struct {
     key: []const u8 = "",
     class: []const u8 = "",
+    text: []const u8 = "",
     onclick: ?*const fn (Node) void = null,
     children: ?[]const Dom.NodeId = null,
 };
@@ -346,7 +425,7 @@ pub const Style = struct {
     rounding: f32 = 0.0,
 };
 
-const Node = struct {
+pub const Node = struct {
     attributes: NodeAttributes,
     first_child: Dom.NodeId = Dom.InvalidNodeId,
     next_sibling: Dom.NodeId = Dom.InvalidNodeId,
@@ -364,23 +443,27 @@ const Node = struct {
     pub fn init_style_from_attributes(self: *Node, options: *const Options) void {
         var classes = std.mem.splitSequence(u8, self.attributes.class, " ");
         while (classes.next()) |class| {
-            if (get_class_value(f32, "rounding-", class)) |f| {
-                self.style.rounding = f;
-            }
+            self.apply_style(options, class);
+        }
+    }
 
-            if (get_class_slice("bg-", class)) |color| {
-                self.style.background_color = options.colors.get(color) orelse blk: {
-                    std.debug.print("color not found: {s}\n", .{color});
-                    break :blk @Vector(4, u8){ 0, 0, 0, 255 };
-                };
-            }
+    pub fn apply_style(self: *Node, options: *const Options, class: []const u8) void {
+        if (get_class_value(f32, "rounding-", class)) |f| {
+            self.style.rounding = f;
+        }
 
-            if (get_class_slice("text-", class)) |color| {
-                self.style.color = options.colors.get(color) orelse blk: {
-                    std.debug.print("color not found: {s}\n", .{color});
-                    break :blk @Vector(4, u8){ 0, 0, 0, 255 };
-                };
-            }
+        if (get_class_slice("bg-", class)) |color| {
+            self.style.background_color = options.colors.get(color) orelse blk: {
+                std.debug.print("color not found: {s}\n", .{color});
+                break :blk @Vector(4, u8){ 0, 0, 0, 255 };
+            };
+        }
+
+        if (get_class_slice("text-", class)) |color| {
+            self.style.color = options.colors.get(color) orelse blk: {
+                std.debug.print("color not found: {s}\n", .{color});
+                break :blk @Vector(4, u8){ 0, 0, 0, 255 };
+            };
         }
     }
 };

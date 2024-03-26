@@ -94,7 +94,7 @@ pub fn main() !void {
     // rl.setConfigFlags(.flag_window_highdpi);
     rl.initWindow(screenWidth, screenHeight, "some-game");
     rl.setWindowMonitor(0);
-    // rl.setTargetFPS(0);
+    // rl.setTargetFPS(144);
 
     // var ui = mod_ui.Ui.init(std.heap.c_allocator);
 
@@ -144,28 +144,32 @@ pub fn main() !void {
         try options.colors.put("gray", @Vector(4, u8){ 128, 128, 128, 255 });
     }
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
-    var prev_arena: ?std.heap.ArenaAllocator = null;
-    var prev_dom: ?*ui.Dom = null;
+    var first_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var second_arena: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var prev_dom: ?ui.Dom = null;
     var prev_root_node: ui.Dom.NodeId = ui.Dom.InvalidNodeId;
+
+    var current_arena = &first_arena;
+    var is_first_arena = true;
 
     // // Wait for the user to close the window.
     while (!rl.windowShouldClose()) {
-        _ = arena.reset(.retain_capacity);
+        _ = current_arena.reset(.retain_capacity);
+        const allocator = current_arena.allocator();
 
         rl.beginDrawing();
         rl.clearBackground(rl.Color.black);
 
-        var dom = ui.Dom.init(arena.allocator(), &options);
+        var dom = ui.Dom.init(allocator, &options);
 
         const root = dom.view(.{
             .class = "bg-black p-40",
             .children = &.{
                 dom.view(.{
-                    .class = dom.fmt("bg-red w-{d} h-200", .{rl.getFPS()}),
+                    .class = dom.fmt("bg-red w-{d} h-200 p-20 flex flex-col justify-center", .{@as(f32, @floatFromInt(rl.getFPS())) / 100}),
                     .children = &.{
                         dom.view(.{
-                            .class = "bg-white w-100 h-100",
+                            .class = "bg-white h-100",
                         }),
                     },
                 }),
@@ -180,17 +184,16 @@ pub fn main() !void {
             },
         });
 
-        var mutations = std.ArrayList(ui.Mutation).init(arena.allocator());
-        // std.log.info("here!", .{});
-        try ui.diff(prev_dom, &dom, prev_root_node, root, &mutations);
-        // std.log.info("here!2", .{});
+        var mutations = std.ArrayList(ui.Mutation).init(allocator);
+
+        try ui.diff(if (prev_dom != null) &prev_dom.? else null, &dom, prev_root_node, root, &mutations);
 
         for (mutations.items) |item| {
-            std.debug.print("{}\n", .{item});
+            // std.debug.print("{}\n", .{item});
             switch (item) {
                 ui.Mutation.replace => |data| {
                     _ = try ui.replace(
-                        prev_dom,
+                        if (prev_dom != null) &prev_dom.? else null,
                         &dom,
                         data.prev,
                         data.next,
@@ -198,8 +201,18 @@ pub fn main() !void {
                         &options,
                     );
                 },
-                ui.Mutation.updateClass => |update_class| {
-                    _ = update_class; // autofix
+                ui.Mutation.updateClass => |data| {
+                    var node = &dom.nodes.items[data.node];
+                    node.attributes.class = data.class;
+                    node.style = ui.Style{};
+
+                    // TODO: temp
+                    const yg_node = yoga_elements.get(data.node).?;
+                    var classes = std.mem.splitSequence(u8, node.attributes.class, " ");
+                    while (classes.next()) |class| {
+                        node.apply_style(&options, class);
+                        ui.apply_layout_style(yg_node, &options, class);
+                    }
                 },
                 ui.Mutation.updateOnClick => |update_onclick| {
                     _ = update_onclick; // autofix
@@ -213,9 +226,17 @@ pub fn main() !void {
 
         render(&rl_fonts, &dom, root, &yoga_elements, &options, @Vector(2, f32){ 0, 0 });
 
-        prev_arena = arena;
-        prev_dom = &dom;
+        prev_dom = dom;
         prev_root_node = root;
+        if (is_first_arena) {
+            is_first_arena = false;
+            current_arena = &second_arena;
+        } else {
+            is_first_arena = true;
+            current_arena = &first_arena;
+        }
+
+        rl.drawFPS(500, 500);
 
         rl.endDrawing();
     }

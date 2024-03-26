@@ -46,6 +46,8 @@ pub fn build(b: *std.Build) void {
 
     exe.root_module.addImport("freetype", freetype.module("mach-freetype"));
 
+    buildYoga(b, exe);
+
     // exe.linkLibC();
 
     // // This declares intent for the executable to be installed into the
@@ -75,4 +77,32 @@ pub fn build(b: *std.Build) void {
     // This will evaluate the `run` step rather than the default, which is "install".
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
+}
+
+pub fn buildYoga(b: *std.Build, c: *std.Build.Step.Compile) void {
+    c.linkLibCpp();
+    const yoga_dep = b.dependency("yoga", .{});
+
+    c.addIncludePath(yoga_dep.path(""));
+
+    const flags = &.{"-std=c++20"};
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/YGNodeStyle.cpp"), .flags = flags });
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/YGValue.cpp"), .flags = flags });
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/YGEnums.cpp"), .flags = flags });
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/YGNodeLayout.cpp"), .flags = flags });
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/node/Node.cpp"), .flags = flags });
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/node/LayoutResults.cpp"), .flags = flags });
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/config/Config.cpp"), .flags = flags });
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/debug/Log.cpp"), .flags = flags });
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/debug/AssertFatal.cpp"), .flags = flags });
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/event/event.cpp"), .flags = flags });
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/algorithm/Baseline.cpp"), .flags = flags });
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/algorithm/CalculateLayout.cpp"), .flags = flags });
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/algorithm/AbsoluteLayout.cpp"), .flags = flags });
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/algorithm/Cache.cpp"), .flags = flags });
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/algorithm/FlexLine.cpp"), .flags = flags });
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/algorithm/PixelGrid.cpp"), .flags = flags });
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/YGPixelGrid.cpp"), .flags = flags });
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/YGNode.cpp"), .flags = flags });
+    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/YGConfig.cpp"), .flags = flags });
 }

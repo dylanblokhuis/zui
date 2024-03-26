@@ -855,7 +855,7 @@ pub const Ui = struct {
     pub fn handle_click_event(self: *Self, node: *Node, mouse_position: @Vector(2, f32)) void {
         // we can reuse the global hover state
         if (node.selector_state.hover and node.data.onclick != null) {
-            std.debug.print("clicking  node {s}\n", .{node.data.class});
+            std.debug.print("clicking node {s}\n", .{node.data.class});
             node.data.onclick.?.call();
         }
 

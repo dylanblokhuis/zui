@@ -23,6 +23,10 @@
             .url = "https://codeload.github.com/hexops/mach-freetype/tar.gz/dc4a5d8ce14f8678f35bdaf197303091e22b1f27",
             .hash = "122070070dd2c402d94c279d64d4a4d154691ad49f46fa2c24ed7c6e4e4f5c531477",
         },
+        .yoga = .{
+            .url = "https://codeload.github.com/facebook/yoga/tar.gz/f12d43631444420667004ca025d3d4071d76a694",
+            .hash = "1220fdb854d7c459d6b60b8bfc35924a4394dec4cfbb8ce4fc660cdc26569d0bd60f",
+        },
     },
     .paths = .{
         // This makes *all* files, recursively, included in this package. It is generally

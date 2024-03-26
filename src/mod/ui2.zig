@@ -256,8 +256,9 @@ pub fn apply_layout_style(yg_node: c.YGNodeRef, options: *const Options, class: 
         c.YGNodeStyleSetPadding(yg_node, c.YGEdgeAll, padding);
     }
 
-    c.YGNodeStyleSetDisplay(yg_node, c.YGDisplayFlex);
-    c.YGNodeStyleSetFlexDirection(yg_node, c.YGFlexDirectionColumn);
+    // c.YGNodeStyleSetPositionType(yg_node, c.YGPositionTypeRelative);
+    // c.YGNodeStyleSetDisplay(yg_node, c.YGDisplayFlex);
+    // c.YGNodeStyleSetFlexDirection(yg_node, c.YGFlexDirectionColumn);
 
     // c.YGNodeStyleSetWidth(node, c.YGValue{.value = 200, .unit = c.YGUnitPoint});
     // c.YGNodeStyleSetHeight(node, c.YGValue{.value = 200, .unit = c.YGUnitPoint});

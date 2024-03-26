@@ -17,7 +17,6 @@ pub fn render(rl_fonts: *const RLFonts, dom: *ui.Dom, node_id: ui.Dom.NodeId, yo
         const y = ui.Yoga.YGNodeLayoutGetTop(yoga_node);
         const width = ui.Yoga.YGNodeLayoutGetWidth(yoga_node);
         const height = ui.Yoga.YGNodeLayoutGetHeight(yoga_node);
-        // ui.Yoga.YGLayout
 
         rl.drawRectangleRounded(.{
             .x = x,
@@ -29,8 +28,9 @@ pub fn render(rl_fonts: *const RLFonts, dom: *ui.Dom, node_id: ui.Dom.NodeId, yo
 
     var child = node.first_child;
     while (child != ui.Dom.InvalidNodeId) {
+        const child_node = dom.nodes.items[child];
         render(rl_fonts, dom, child, yoga_elements, options, depth + 1);
-        child = node.next_sibling;
+        child = child_node.next_sibling;
     }
 }
 //     // std.debug.print("{d} {s}\n", .{ depth, node.data.class });
@@ -178,7 +178,9 @@ pub fn main() !void {
         });
 
         var mutations = std.ArrayList(ui.Mutation).init(arena.allocator());
+        // std.log.info("here!", .{});
         try ui.diff(prev_dom, &dom, prev_root_node, root, &mutations);
+        // std.log.info("here!2", .{});
 
         for (mutations.items) |item| {
             std.debug.print("{}\n", .{item});

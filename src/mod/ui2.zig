@@ -82,6 +82,10 @@ pub const Dom = struct {
         return parent_id;
     }
 
+    pub fn fmt(self: *Self, comptime format: []const u8, args: anytype) []u8 {
+        return std.fmt.allocPrint(self.allocator, format, args) catch unreachable;
+    }
+
     // pub fn views(self: *Self, children: []Self.NodeId) []Self.NodeId {
     //     _ = self; // autofix
     //     // const ids = self.allocator.alloc(NodeAttributes, children.len) catch unreachable;
@@ -286,6 +290,8 @@ pub fn diff(prev_dom: ?*Dom, next_dom: *Dom, prev_node: Dom.NodeId, next_node: D
                 },
             });
         }
+
+        std.log.info("{s} - {s}", .{ prev.attributes.class, next.attributes.class });
 
         // class is different, we update the node
         if (!std.mem.eql(u8, prev.attributes.class, next.attributes.class)) {

@@ -8,19 +8,22 @@ const Allocator = std.mem.Allocator;
 
 pub const RLFonts = std.StringArrayHashMap(rl.Texture);
 
-pub fn render(rl_fonts: *const RLFonts, dom: *ui.Dom, node_id: ui.Dom.NodeId, yoga_elements: *ui.YogaElements, options: *const ui.Options, depth: u32) void {
+pub fn render(rl_fonts: *const RLFonts, dom: *ui.Dom, node_id: ui.Dom.NodeId, yoga_elements: *ui.YogaElements, options: *const ui.Options, parent_offset: @Vector(2, f32)) void {
     const node = dom.nodes.items[node_id];
 
-    if (node.style.background_color[3] != 0) {
-        const yoga_node = yoga_elements.get(node_id).?;
-        const x = ui.Yoga.YGNodeLayoutGetLeft(yoga_node);
-        const y = ui.Yoga.YGNodeLayoutGetTop(yoga_node);
-        const width = ui.Yoga.YGNodeLayoutGetWidth(yoga_node);
-        const height = ui.Yoga.YGNodeLayoutGetHeight(yoga_node);
+    const yoga_node = yoga_elements.get(node_id).?;
+    const x = ui.Yoga.YGNodeLayoutGetLeft(yoga_node);
+    const y = ui.Yoga.YGNodeLayoutGetTop(yoga_node);
+    const width = ui.Yoga.YGNodeLayoutGetWidth(yoga_node);
+    const height = ui.Yoga.YGNodeLayoutGetHeight(yoga_node);
 
+    const parent_x_offset = parent_offset[0] + x;
+    const parent_y_offset = parent_offset[1] + y;
+
+    if (node.style.background_color[3] != 0) {
         rl.drawRectangleRounded(.{
-            .x = x,
-            .y = y,
+            .x = parent_x_offset,
+            .y = parent_y_offset,
             .width = width,
             .height = height,
         }, node.style.rounding, 10, rl.Color.init(node.style.background_color[0], node.style.background_color[1], node.style.background_color[2], node.style.background_color[3]));
@@ -29,7 +32,7 @@ pub fn render(rl_fonts: *const RLFonts, dom: *ui.Dom, node_id: ui.Dom.NodeId, yo
     var child = node.first_child;
     while (child != ui.Dom.InvalidNodeId) {
         const child_node = dom.nodes.items[child];
-        render(rl_fonts, dom, child, yoga_elements, options, depth + 1);
+        render(rl_fonts, dom, child, yoga_elements, options, @Vector(2, f32){ parent_x_offset, parent_y_offset });
         child = child_node.next_sibling;
     }
 }
@@ -159,7 +162,7 @@ pub fn main() !void {
             .class = "bg-black p-40",
             .children = &.{
                 dom.view(.{
-                    .class = "bg-red w-200 h-200",
+                    .class = dom.fmt("bg-red w-{d} h-200", .{rl.getFPS()}),
                     .children = &.{
                         dom.view(.{
                             .class = "bg-white w-100 h-100",
@@ -208,7 +211,7 @@ pub fn main() !void {
             ui.CalculateLayout(yoga_elements.get(root).?, screenWidth, screenHeight, ui.LayoutDirectionLTR);
         }
 
-        render(&rl_fonts, &dom, root, &yoga_elements, &options, 0);
+        render(&rl_fonts, &dom, root, &yoga_elements, &options, @Vector(2, f32){ 0, 0 });
 
         prev_arena = arena;
         prev_dom = &dom;

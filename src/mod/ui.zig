@@ -439,37 +439,37 @@ pub const Node = struct {
             self.layout.contain.nowrap = false;
         }
 
-        if (get_class_value(f32, "w-", class)) |width| {
+        if (getClassValue(f32, "w-", class)) |width| {
             self.layout.size[0] = width;
         }
 
-        if (get_class_value(f32, "h-", class)) |height| {
+        if (getClassValue(f32, "h-", class)) |height| {
             self.layout.size[1] = height;
         }
 
-        if (get_class_value(f32, "m-", class)) |f| {
+        if (getClassValue(f32, "m-", class)) |f| {
             self.layout.margins = @Vector(4, f32){ f, f, f, f };
         }
 
-        if (get_class_value(f32, "rounding-", class)) |f| {
+        if (getClassValue(f32, "rounding-", class)) |f| {
             self.style.rounding = f;
         }
 
-        if (get_class_slice("bg-", class)) |color| {
+        if (getClassSlice("bg-", class)) |color| {
             self.style.background_color = ui.style_options.colors.get(color) orelse blk: {
                 std.debug.print("color not found: {s}\n", .{color});
                 break :blk @Vector(4, u8){ 0, 0, 0, 255 };
             };
         }
 
-        if (get_class_slice("text-", class)) |color| {
+        if (getClassSlice("text-", class)) |color| {
             self.style.color = ui.style_options.colors.get(color) orelse blk: {
                 std.debug.print("color not found: {s}\n", .{color});
                 break :blk @Vector(4, u8){ 0, 0, 0, 255 };
             };
         }
 
-        if (get_class_slice("items-", class)) |align_items| {
+        if (getClassSlice("items-", class)) |align_items| {
             self.layout.contain.start = false;
             self.layout.contain.middle = false;
             self.layout.contain.end = false;
@@ -492,11 +492,11 @@ pub const Node = struct {
             }
         }
 
-        if (get_class_slice("font-", class)) |font_name| {
+        if (getClassSlice("font-", class)) |font_name| {
             self.style.font_name = font_name;
         }
 
-        if (get_class_slice("b-", class)) |behave| {
+        if (getClassSlice("b-", class)) |behave| {
             if (std.mem.eql(u8, behave, "left")) {
                 self.layout.behave.left = true;
             }
@@ -553,7 +553,7 @@ pub const Node = struct {
     }
 };
 
-fn get_class_slice(prefix: []const u8, class: []const u8) ?[]const u8 {
+fn getClassSlice(prefix: []const u8, class: []const u8) ?[]const u8 {
     var splits = std.mem.split(u8, class, prefix);
 
     std.debug.assert(splits.next() != null);
@@ -567,7 +567,7 @@ fn get_class_slice(prefix: []const u8, class: []const u8) ?[]const u8 {
     return null;
 }
 
-fn get_class_value(comptime T: type, prefix: []const u8, class: []const u8) ?T {
+fn getClassValue(comptime T: type, prefix: []const u8, class: []const u8) ?T {
     var splits = std.mem.split(u8, class, prefix);
 
     std.debug.assert(splits.next() != null);
@@ -840,7 +840,7 @@ pub const Ui = struct {
         node.arrange(1);
     }
 
-    pub fn load_font(self: *Self, name: []const u8, font_desc: fonts.FontDesc) !void {
+    pub fn loadFont(self: *Self, name: []const u8, font_desc: fonts.FontDesc) !void {
         try self.font_name_to_desc.put(self.allocator, name, font_desc);
         try self.fonts.create_atlas(font_desc, self.allocator);
     }

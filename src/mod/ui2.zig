@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const c = @cImport({
     @cInclude("yoga/Yoga.h");
 });
+const FontManager = @import("font.zig");
 
 pub const YogaNodeRef = c.YGNodeRef;
 pub const CalculateLayout = c.YGNodeCalculateLayout;
@@ -13,6 +14,8 @@ pub const Yoga = c;
 pub const YogaElements = std.AutoHashMap(Dom.NodeId, YogaNodeRef);
 
 pub const Options = struct {
+    font_manager: FontManager,
+    font_name_to_desc: std.StringHashMapUnmanaged(FontManager.FontDesc),
     colors: std.StringHashMap(@Vector(4, u8)),
 
     const Self = @This();
@@ -20,7 +23,14 @@ pub const Options = struct {
     pub fn init(allocator: Allocator) Self {
         return Self{
             .colors = std.StringHashMap(@Vector(4, u8)).init(allocator),
+            .font_name_to_desc = std.StringHashMapUnmanaged(FontManager.FontDesc){},
+            .font_manager = FontManager.init(allocator),
         };
+    }
+
+    pub fn loadFont(self: *Self, allocator: Allocator, name: []const u8, desc: FontManager.FontDesc) !void {
+        try self.font_manager.create_atlas(desc, allocator);
+        try self.font_name_to_desc.put(allocator, name, desc);
     }
 };
 
@@ -41,16 +51,11 @@ pub const Dom = struct {
         };
     }
 
-    pub fn new_node(self: *Self, attributes: NodeAttributes) Self.NodeId {
-        self.nodes.append(Node.init(attributes)) catch unreachable;
-        return self.nodes.items.len - 1;
-    }
-
     // pub fn root(self: *Self, node_id: Self.NodeId) Self.NodeId {
     //     return self.nodes.items.len - 1;
     // }
 
-    pub fn append_child(self: *Self, parent_id: Self.NodeId, child_id: Self.NodeId) void {
+    pub fn appendChild(self: *Self, parent_id: Self.NodeId, child_id: Self.NodeId) void {
         const parent = &self.nodes.items[parent_id];
 
         if (parent.first_child == Self.InvalidNodeId) {
@@ -74,106 +79,24 @@ pub const Dom = struct {
 
         if (attributes.children) |children| {
             for (children) |child_id| {
-                self.append_child(parent_id, child_id);
+                self.appendChild(parent_id, child_id);
             }
         }
 
         return parent_id;
     }
 
+    pub fn text(self: *Self, class: []const u8, string: []const u8) Self.NodeId {
+        return self.view(.{
+            .text = string,
+            .class = class,
+        });
+    }
+
     pub fn fmt(self: *Self, comptime format: []const u8, args: anytype) []u8 {
         return std.fmt.allocPrint(self.allocator, format, args) catch unreachable;
     }
-
-    // pub fn views(self: *Self, children: []Self.NodeId) []Self.NodeId {
-    //     _ = self; // autofix
-    //     // const ids = self.allocator.alloc(NodeAttributes, children.len) catch unreachable;
-    //     // for (children, 0..) |child, index| {
-    //     //     const id = self.view(child);
-    //     //     ids[index] = id;
-    //     // }
-    //     return children;
-    // }
 };
-
-/// Build a DOM tree with Yoga
-/// Create tree once
-///
-pub fn example() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
-    var prev_arena: ?std.heap.ArenaAllocator = null;
-    var prev_dom: ?*Dom = null;
-    var prev_root_node: Dom.NodeId = Dom.InvalidNodeId;
-
-    var yoga_elements = YogaElements.init(std.heap.c_allocator);
-
-    while (true) {
-        const now = try std.time.Instant.now();
-        _ = arena.reset(.retain_capacity);
-        var dom = Dom.init(arena.allocator());
-
-        const root = dom.view(.{
-            .class = "bg-black",
-            .children = &.{
-                dom.view(.{
-                    .class = "bg-red m-10 w-200 h-200",
-                    .children = &.{
-                        dom.view(.{
-                            .class = "bg-blue m-10 w-50 h-50",
-                        }),
-                        // dom.view(.{
-                        //     .class = "bg-blue m-10 w-200 h-200",
-                        // }),
-                    },
-                }),
-
-                dom.view(.{
-                    .class = "bg-red m-10 w-200 h-200",
-                }),
-
-                dom.view(.{
-                    .class = "bg-red m-10 w-200 h-200",
-                }),
-            },
-        });
-
-        var mutations = std.ArrayList(Mutation).init(arena.allocator());
-        try diff(prev_dom, &dom, prev_root_node, root, &mutations);
-
-        for (mutations.items) |item| {
-            std.debug.print("{}\n", .{item});
-            switch (item) {
-                Mutation.replace => |data| {
-                    _ = try replace(
-                        prev_dom,
-                        &dom,
-                        data.prev,
-                        data.next,
-                        &yoga_elements,
-                    );
-                },
-                Mutation.updateClass => |update_class| {
-                    _ = update_class; // autofix
-                },
-                Mutation.updateOnClick => |update_onclick| {
-                    _ = update_onclick; // autofix
-                },
-            }
-        }
-
-        if (mutations.items.len > 0) {
-            c.YGNodeCalculateLayout(yoga_elements.get(root).?, 1920, 1080, c.YGDirectionLTR);
-        }
-
-        std.log.debug("{d}", .{c.YGNodeLayoutGetLeft(yoga_elements.get(root - 1).?)});
-
-        prev_arena = arena;
-        prev_dom = &dom;
-        prev_root_node = root;
-        const elapsed = (try std.time.Instant.now()).since(now);
-        std.log.debug("elapsed us: {d}", .{elapsed / std.time.ns_per_us});
-    }
-}
 
 pub fn replace(prev: ?*Dom, next: *Dom, prev_node: Dom.NodeId, next_node: Dom.NodeId, yoga_elements: *YogaElements, options: *const Options) !Dom.NodeId {
     if (prev_node != Dom.InvalidNodeId) {
@@ -185,9 +108,10 @@ pub fn replace(prev: ?*Dom, next: *Dom, prev_node: Dom.NodeId, next_node: Dom.No
     }
 
     const yg_node = c.YGNodeNew();
+    const text = next.nodes.items[next_node].attributes.text;
     var classes = std.mem.splitSequence(u8, next.nodes.items[next_node].attributes.class, " ");
     while (classes.next()) |class| {
-        apply_layout_style(yg_node, options, class);
+        applyLayoutStyle(yg_node, options, class, text);
     }
     try yoga_elements.put(next_node, yg_node);
 
@@ -195,7 +119,6 @@ pub fn replace(prev: ?*Dom, next: *Dom, prev_node: Dom.NodeId, next_node: Dom.No
     var index: usize = 0;
     while (child != Dom.InvalidNodeId) {
         const next_child = try replace(prev, next, Dom.InvalidNodeId, child, yoga_elements, options);
-        std.log.info("{d} - {d}", .{ next_node, index });
         c.YGNodeInsertChild(yg_node, yoga_elements.get(next_child).?, index);
         child = next.nodes.items[child].next_sibling;
         index += 1;
@@ -204,7 +127,7 @@ pub fn replace(prev: ?*Dom, next: *Dom, prev_node: Dom.NodeId, next_node: Dom.No
     return next_node;
 }
 
-fn get_class_slice(prefix: []const u8, class: []const u8) ?[]const u8 {
+fn getClassSlice(prefix: []const u8, class: []const u8) ?[]const u8 {
     var splits = std.mem.split(u8, class, prefix);
 
     std.debug.assert(splits.next() != null);
@@ -218,7 +141,7 @@ fn get_class_slice(prefix: []const u8, class: []const u8) ?[]const u8 {
     return null;
 }
 
-fn get_class_value(comptime T: type, prefix: []const u8, class: []const u8) ?T {
+fn getClassValue(comptime T: type, prefix: []const u8, class: []const u8) ?T {
     var splits = std.mem.split(u8, class, prefix);
 
     std.debug.assert(splits.next() != null);
@@ -242,21 +165,34 @@ fn get_class_value(comptime T: type, prefix: []const u8, class: []const u8) ?T {
     return null;
 }
 
-pub fn apply_layout_style(yg_node: c.YGNodeRef, options: *const Options, class: []const u8) void {
-    _ = options; // autofix
-    if (get_class_value(f32, "w-", class)) |width| {
+pub fn applyLayoutStyle(yg_node: c.YGNodeRef, options: *const Options, class: []const u8, text: []const u8) void {
+    if (text.len > 0) {
+        if (getClassSlice("font-", class)) |font_name| {
+            const desc = options.font_name_to_desc.get(font_name);
+
+            if (desc) |font_desc| {
+                const atlas = options.font_manager.atlases.get(font_desc).?;
+                const size = atlas.measure(text);
+
+                c.YGNodeStyleSetWidth(yg_node, size[0]);
+                c.YGNodeStyleSetHeight(yg_node, size[1]);
+            }
+        }
+    }
+
+    if (getClassValue(f32, "w-", class)) |width| {
         c.YGNodeStyleSetWidth(yg_node, width);
     }
 
-    if (get_class_value(f32, "h-", class)) |height| {
+    if (getClassValue(f32, "h-", class)) |height| {
         c.YGNodeStyleSetHeight(yg_node, height);
     }
 
-    if (get_class_value(f32, "m-", class)) |margin| {
+    if (getClassValue(f32, "m-", class)) |margin| {
         c.YGNodeStyleSetMargin(yg_node, c.YGEdgeAll, margin);
     }
 
-    if (get_class_value(f32, "p-", class)) |padding| {
+    if (getClassValue(f32, "p-", class)) |padding| {
         c.YGNodeStyleSetPadding(yg_node, c.YGEdgeAll, padding);
     }
 
@@ -300,7 +236,7 @@ pub fn apply_layout_style(yg_node: c.YGNodeRef, options: *const Options, class: 
     }
 
     // items-*
-    if (get_class_slice("items-", class)) |align_items| {
+    if (getClassSlice("items-", class)) |align_items| {
         if (std.mem.eql(u8, "start", align_items)) {
             c.YGNodeStyleSetAlignItems(yg_node, c.YGAlignFlexStart);
         }
@@ -319,7 +255,7 @@ pub fn apply_layout_style(yg_node: c.YGNodeRef, options: *const Options, class: 
     }
 
     // justify-*
-    if (get_class_slice("justify-", class)) |justify_content| {
+    if (getClassSlice("justify-", class)) |justify_content| {
         if (std.mem.eql(u8, "start", justify_content)) {
             c.YGNodeStyleSetJustifyContent(yg_node, c.YGJustifyFlexStart);
         }
@@ -374,6 +310,15 @@ pub fn diff(prev_dom: ?*Dom, next_dom: *Dom, prev_node: Dom.NodeId, next_node: D
                 .updateClass = .{
                     .node = next_node,
                     .class = next.attributes.class,
+                },
+            });
+        }
+
+        if (!std.mem.eql(u8, prev.attributes.text, next.attributes.text)) {
+            try mutations.append(.{
+                .updateText = .{
+                    .node = next_node,
+                    .text = next.attributes.text,
                 },
             });
         }
@@ -435,31 +380,31 @@ pub const Node = struct {
         var node = Node{
             .attributes = attributes,
         };
-        node.init_style_from_attributes(options);
+        node.setStyleFromAttributes(options);
 
         return node;
     }
 
-    pub fn init_style_from_attributes(self: *Node, options: *const Options) void {
+    pub fn setStyleFromAttributes(self: *Node, options: *const Options) void {
         var classes = std.mem.splitSequence(u8, self.attributes.class, " ");
         while (classes.next()) |class| {
-            self.apply_style(options, class);
+            self.applyStyle(options, class);
         }
     }
 
-    pub fn apply_style(self: *Node, options: *const Options, class: []const u8) void {
-        if (get_class_value(f32, "rounding-", class)) |f| {
+    pub fn applyStyle(self: *Node, options: *const Options, class: []const u8) void {
+        if (getClassValue(f32, "rounding-", class)) |f| {
             self.style.rounding = f;
         }
 
-        if (get_class_slice("bg-", class)) |color| {
+        if (getClassSlice("bg-", class)) |color| {
             self.style.background_color = options.colors.get(color) orelse blk: {
                 std.debug.print("color not found: {s}\n", .{color});
                 break :blk @Vector(4, u8){ 0, 0, 0, 255 };
             };
         }
 
-        if (get_class_slice("text-", class)) |color| {
+        if (getClassSlice("text-", class)) |color| {
             self.style.color = options.colors.get(color) orelse blk: {
                 std.debug.print("color not found: {s}\n", .{color});
                 break :blk @Vector(4, u8){ 0, 0, 0, 255 };
@@ -476,6 +421,10 @@ pub const Mutation = union(enum) {
     updateClass: struct {
         node: Dom.NodeId,
         class: []const u8,
+    },
+    updateText: struct {
+        node: Dom.NodeId,
+        text: []const u8,
     },
     updateOnClick: struct {
         node: Dom.NodeId,

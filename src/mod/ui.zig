@@ -36,12 +36,17 @@ pub const Options = struct {
 };
 
 pub const Dom = struct {
+    /// This data should persist between renders
+    pub const Persistent = struct {
+        hooks: std.ArrayListUnmanaged(AnyPointer) = .{},
+        allocator: Allocator,
+    };
+
     nodes: std.ArrayListUnmanaged(Node) = .{},
     allocator: Allocator,
     options: *const Options,
-    counter: u32 = 0,
-    saved_components: std.ArrayHashMapUnmanaged(ComponentKey, ComponentInterface, ComponentKey.ComponentKeyContext, false) = .{},
-    hooks: std.ArrayListUnmanaged(AnyPointer) = .{},
+    // hooks: *HooksList,
+    persistent: *Persistent,
     hooks_counter: u32 = 0,
 
     const Self = @This();
@@ -49,9 +54,10 @@ pub const Dom = struct {
     pub const NodeId = usize;
     pub const InvalidNodeId: usize = std.math.maxInt(usize);
 
-    pub fn init(allocator: Allocator, options: *const Options) Self {
+    pub fn init(allocator: Allocator, persistent: *Persistent, options: *const Options) Self {
         return Self{
             .allocator = allocator,
+            .persistent = persistent,
             .options = options,
         };
     }
@@ -95,19 +101,7 @@ pub const Dom = struct {
     }
 
     pub fn c(self: *Self, comptime component: anytype) Self.NodeId {
-        const existing_component = self.saved_components.getPtr(ComponentKey{ .id = self.counter, .key = @typeName(@TypeOf(component)) });
-        if (existing_component) |existing_interface| {
-            // replace the ptr here, since the previous object ptr has been removed from the stack
-            existing_interface.obj_ptr.ptr = @constCast(component);
-
-            self.counter += 1;
-            return existing_interface.func_ptr(existing_interface.obj_ptr);
-        }
-
         const interface: ComponentInterface = @constCast(component).renderable(self);
-        self.saved_components.put(self.allocator, ComponentKey{ .id = self.counter, .key = @typeName(@TypeOf(component)) }, interface) catch unreachable;
-        self.counter += 1;
-
         return interface.func_ptr(interface.obj_ptr);
     }
 
@@ -132,14 +126,50 @@ pub const Dom = struct {
 
         return children;
     }
+
+    pub const Event = union(enum) {
+        click: struct {
+            x: f32,
+            y: f32,
+        },
+    };
+
+    pub fn handle_event(self: *Self, yoga_elements: *YogaElements, parent_offset: @Vector(2, f32), node_id: Self.NodeId, event: Event) void {
+        const node = &self.nodes.items[node_id];
+        const yoga_node = yoga_elements.get(node_id).?;
+
+        const rect = @Vector(4, f32){
+            parent_offset[0] + Yoga.YGNodeLayoutGetLeft(yoga_node),
+            parent_offset[1] + Yoga.YGNodeLayoutGetTop(yoga_node),
+            Yoga.YGNodeLayoutGetWidth(yoga_node),
+            Yoga.YGNodeLayoutGetHeight(yoga_node),
+        };
+
+        switch (event) {
+            .click => |data| {
+                if (rect[0] <= data.x and data.x <= rect[0] + rect[2] and rect[1] <= data.y and data.y <= rect[1] + rect[3]) {
+                    if (node.attributes.onclick) |listener| {
+                        listener.call(event);
+                    }
+                }
+            },
+        }
+
+        var child = node.first_child;
+        while (child != Self.InvalidNodeId) {
+            const child_node = self.nodes.items[child];
+            self.handle_event(yoga_elements, @Vector(2, f32){ rect[0], rect[1] }, child, event);
+            child = child_node.next_sibling;
+        }
+    }
 };
 
 const Listener = struct {
-    func_ptr: *const fn (component: Component) void,
+    func_ptr: *const fn (component: Component, event: Dom.Event) void,
     component: Component,
 
-    pub fn call(self: @This()) void {
-        self.func_ptr(self.component);
+    pub fn call(self: @This(), event: Dom.Event) void {
+        self.func_ptr(self.component, event);
     }
 };
 
@@ -187,7 +217,7 @@ pub const Component = struct {
         return @ptrCast(@alignCast(self.ptr));
     }
 
-    pub fn listener(self: Self, func_ptr: *const fn (c: Self) void) Listener {
+    pub fn listener(self: Self, func_ptr: *const fn (c: Self, event: Dom.Event) void) Listener {
         return Listener{
             .func_ptr = func_ptr,
             .component = self,
@@ -210,19 +240,25 @@ pub fn create_ref(
             component: Component,
             initial_value: T,
         ) @This() {
-            if (component.dom.hooks.items.len > component.dom.hooks_counter) {
-                const hook = component.dom.hooks.items[component.dom.hooks_counter].cast(*T);
+            if (component.dom.persistent.hooks.items.len > component.dom.hooks_counter) {
+                const hook = component.dom.persistent.hooks.items[component.dom.hooks_counter].cast(*T);
                 component.dom.hooks_counter += 1;
-                return @This(){ .value = hook, .component = component };
+                return @This(){
+                    .value = hook,
+                    .component = component,
+                };
             }
 
-            const ptr = component.dom.allocator.create(T) catch unreachable;
+            const ptr = component.dom.persistent.allocator.create(T) catch unreachable;
             ptr.* = initial_value;
             const make = AnyPointer.make(*T, ptr);
-            component.dom.hooks.append(component.dom.allocator, make) catch unreachable;
+            component.dom.persistent.hooks.append(component.dom.persistent.allocator, make) catch unreachable;
             component.dom.hooks_counter += 1;
 
-            return @This(){ .value = make.cast(*T), .component = component };
+            return @This(){
+                .value = make.cast(*T),
+                .component = component,
+            };
         }
 
         pub inline fn get(self: @This()) T {
@@ -508,7 +544,7 @@ const NodeAttributes = struct {
     key: []const u8 = "",
     class: []const u8 = "",
     text: []const u8 = "",
-    onclick: ?*const fn (Node) void = null,
+    onclick: ?Listener = null,
     children: ?[]const Dom.NodeId = null,
 };
 

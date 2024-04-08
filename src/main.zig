@@ -117,6 +117,10 @@ pub fn main() !void {
     var current_dom_width = rl.getScreenWidth();
     var current_dom_height = rl.getScreenHeight();
 
+    var hooks_storage = ui.Dom.Persistent{
+        .allocator = std.heap.c_allocator,
+    };
+
     // // Wait for the user to close the window.
     while (!rl.windowShouldClose()) {
         _ = current_arena.reset(.retain_capacity);
@@ -125,7 +129,7 @@ pub fn main() !void {
         rl.beginDrawing();
         rl.clearBackground(rl.Color.white);
 
-        var dom = ui.Dom.init(allocator, &options);
+        var dom = ui.Dom.init(allocator, &hooks_storage, &options);
 
         const root = dom.view(.{
             .class = "flex flex-col",
@@ -198,6 +202,15 @@ pub fn main() !void {
             ui.CalculateLayout(yoga_elements.get(root).?, @floatFromInt(current_dom_width), @floatFromInt(current_dom_height), ui.LayoutDirectionLTR);
         }
 
+        if (rl.isMouseButtonPressed(.mouse_button_left)) {
+            dom.handle_event(&yoga_elements, .{ 0, 0 }, root, .{
+                .click = .{
+                    .x = @floatFromInt(rl.getMouseX()),
+                    .y = @floatFromInt(rl.getMouseY()),
+                },
+            });
+        }
+
         render(&rl_fonts, &dom, root, &yoga_elements, &options, @Vector(2, f32){ 0, 0 });
 
         prev_dom = dom;
@@ -219,7 +232,8 @@ pub const Button = struct {
     some_array: [3]u8 = [3]u8{ 1, 2, 3 },
     signal: ui.create_ref(u32) = undefined,
 
-    pub fn onclick(component: ui.Component) void {
+    pub fn onclick(component: ui.Component, event: ui.Dom.Event) void {
+        _ = event; // autofix
         const self = component.cast(@This());
         self.signal.set(self.signal.get() + 1);
         std.debug.print("button clicked! {d}\n", .{self.signal.value.*});
@@ -242,11 +256,11 @@ pub const Button = struct {
             .class = "flex flex-col bg-red",
             .children = &.{
                 dom.text("text-white", dom.fmt("button {d}", .{self.signal.value.*})),
-                // dom.view(.{
-                //     .class = "bg-blue text-white",
-                //     .text = dom.fmt("button {d}", .{self.signal.value.*}),
-                //     // .onclick = component.listener(Button.onclick),
-                // }),
+                dom.view(.{
+                    .class = "bg-blue text-white",
+                    .text = dom.fmt("button {d}", .{self.signal.value.*}),
+                    .onclick = component.listener(Button.onclick),
+                }),
                 dom.view(.{
                     .class = "bg-blue",
                     .children = component.foreach(u8, &self.some_array, Button.list),

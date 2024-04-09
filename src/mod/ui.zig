@@ -36,9 +36,18 @@ pub const Options = struct {
 };
 
 pub const Dom = struct {
+    pub const Hook = struct {
+        ptr: AnyPointer,
+        last_changed: usize,
+
+        pub fn init(ptr: AnyPointer, dom_id: usize) @This() {
+            return @This(){ .ptr = ptr, .last_changed = dom_id };
+        }
+    };
     /// This data should persist between renders
     pub const Persistent = struct {
-        hooks: std.ArrayListUnmanaged(AnyPointer) = .{},
+        id: usize = 0,
+        hooks: std.ArrayListUnmanaged(Hook) = .{},
         allocator: Allocator,
     };
 
@@ -55,6 +64,8 @@ pub const Dom = struct {
     pub const InvalidNodeId: usize = std.math.maxInt(usize);
 
     pub fn init(allocator: Allocator, persistent: *Persistent, options: *const Options) Self {
+        // prevent overflow with %
+        persistent.id = (persistent.id + 1) % 3;
         return Self{
             .allocator = allocator,
             .persistent = persistent,
@@ -229,11 +240,11 @@ pub const Component = struct {
     }
 };
 
-pub fn create_ref(
+pub fn createRef(
     comptime T: type,
 ) type {
     return struct {
-        value: *T,
+        id: usize,
         component: Component,
 
         pub fn init(
@@ -241,10 +252,9 @@ pub fn create_ref(
             initial_value: T,
         ) @This() {
             if (component.dom.persistent.hooks.items.len > component.dom.hooks_counter) {
-                const hook = component.dom.persistent.hooks.items[component.dom.hooks_counter].cast(*T);
-                component.dom.hooks_counter += 1;
+                const hook_id = component.dom.hooks_counter;
                 return @This(){
-                    .value = hook,
+                    .id = hook_id,
                     .component = component,
                 };
             }
@@ -252,23 +262,45 @@ pub fn create_ref(
             const ptr = component.dom.persistent.allocator.create(T) catch unreachable;
             ptr.* = initial_value;
             const make = AnyPointer.make(*T, ptr);
-            component.dom.persistent.hooks.append(component.dom.persistent.allocator, make) catch unreachable;
+            component.dom.persistent.hooks.append(component.dom.persistent.allocator, Dom.Hook.init(make, component.dom.persistent.id)) catch unreachable;
+            const hook_id = component.dom.hooks_counter;
             component.dom.hooks_counter += 1;
 
             return @This(){
-                .value = make.cast(*T),
+                .id = hook_id,
                 .component = component,
             };
         }
 
         pub inline fn get(self: @This()) T {
-            return self.value.*;
+            return self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).*;
         }
 
         pub inline fn set(self: @This(), value: T) void {
-            self.value.* = value;
+            self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).* = value;
+            self.component.dom.persistent.hooks.items[self.id].last_changed = self.component.dom.persistent.id;
         }
     };
+}
+
+pub fn useEffect(
+    component: Component,
+    callback: *const fn (component: Component) void,
+    dependencies: []const usize,
+) void {
+    var any_mutated = false;
+    for (dependencies) |dep| {
+        if (component.dom.persistent.hooks.items[dep].last_changed == (component.dom.persistent.id - 1)) {
+            any_mutated = true;
+            break;
+        }
+    }
+
+    if (!any_mutated) {
+        return;
+    }
+
+    callback(component);
 }
 
 pub fn replace(prev: ?*Dom, next: *Dom, prev_node: Dom.NodeId, next_node: Dom.NodeId, yoga_elements: *YogaElements, options: *const Options) !Dom.NodeId {

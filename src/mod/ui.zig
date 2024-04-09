@@ -64,8 +64,8 @@ pub const Dom = struct {
     pub const InvalidNodeId: usize = std.math.maxInt(usize);
 
     pub fn init(allocator: Allocator, persistent: *Persistent, options: *const Options) Self {
-        // prevent overflow with %
-        persistent.id = (persistent.id + 1) % 3;
+        // TODO: we should prob just move this into a bool to save memory
+        persistent.id = (persistent.id + 1) % std.math.maxInt(usize);
         return Self{
             .allocator = allocator,
             .persistent = persistent,

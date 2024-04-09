@@ -86,23 +86,29 @@ pub fn buildYoga(b: *std.Build, c: *std.Build.Step.Compile) void {
     c.addIncludePath(yoga_dep.path(""));
 
     const flags = &.{"-std=c++20"};
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/YGNodeStyle.cpp"), .flags = flags });
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/YGValue.cpp"), .flags = flags });
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/YGEnums.cpp"), .flags = flags });
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/YGNodeLayout.cpp"), .flags = flags });
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/node/Node.cpp"), .flags = flags });
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/node/LayoutResults.cpp"), .flags = flags });
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/config/Config.cpp"), .flags = flags });
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/debug/Log.cpp"), .flags = flags });
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/debug/AssertFatal.cpp"), .flags = flags });
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/event/event.cpp"), .flags = flags });
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/algorithm/Baseline.cpp"), .flags = flags });
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/algorithm/CalculateLayout.cpp"), .flags = flags });
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/algorithm/AbsoluteLayout.cpp"), .flags = flags });
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/algorithm/Cache.cpp"), .flags = flags });
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/algorithm/FlexLine.cpp"), .flags = flags });
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/algorithm/PixelGrid.cpp"), .flags = flags });
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/YGPixelGrid.cpp"), .flags = flags });
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/YGNode.cpp"), .flags = flags });
-    c.addCSourceFile(.{ .file = yoga_dep.path("yoga/YGConfig.cpp"), .flags = flags });
+    const yoga_files = &.{
+        "yoga/YGNodeStyle.cpp",
+        "yoga/YGValue.cpp",
+        "yoga/YGEnums.cpp",
+        "yoga/YGNodeLayout.cpp",
+        "yoga/node/Node.cpp",
+        "yoga/node/LayoutResults.cpp",
+        "yoga/config/Config.cpp",
+        "yoga/debug/Log.cpp",
+        "yoga/debug/AssertFatal.cpp",
+        "yoga/event/event.cpp",
+        "yoga/algorithm/Baseline.cpp",
+        "yoga/algorithm/CalculateLayout.cpp",
+        "yoga/algorithm/AbsoluteLayout.cpp",
+        "yoga/algorithm/Cache.cpp",
+        "yoga/algorithm/FlexLine.cpp",
+        "yoga/algorithm/PixelGrid.cpp",
+        "yoga/YGPixelGrid.cpp",
+        "yoga/YGNode.cpp",
+        "yoga/YGConfig.cpp",
+    };
+
+    inline for (yoga_files) |file| {
+        c.addCSourceFile(.{ .file = yoga_dep.path(file), .flags = flags });
+    }
 }

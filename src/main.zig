@@ -2,6 +2,7 @@ const std = @import("std");
 const rl = @import("raylib");
 const freetype = @import("freetype");
 const ui = @import("mod/ui.zig");
+pub const Checkbox = @import("Checkbox.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -146,7 +147,7 @@ pub fn main() !void {
                     },
                 }),
 
-                dom.c(&Button{}),
+                dom.c(&Checkbox{}),
             },
         });
 
@@ -226,60 +227,3 @@ pub fn main() !void {
         rl.endDrawing();
     }
 }
-
-pub const Button = struct {
-    henkie: u32 = 5,
-    some_array: [3]u8 = [3]u8{ 1, 2, 3 },
-    signal: ui.createRef(u32) = undefined,
-
-    pub fn onclick(component: ui.Component, event: ui.Dom.Event) void {
-        _ = event; // autofix
-        const self = component.cast(@This());
-        self.signal.set(self.signal.get() + 1);
-        std.debug.print("button clicked! {d}\n", .{self.signal.get()});
-    }
-
-    pub fn list(component: ui.Component, item: u8, index: usize) ui.Dom.NodeId {
-        _ = item; // autofix
-        return component.dom.view(.{
-            .class = "text-white",
-            .text = component.dom.fmt("item {d}", .{index}),
-        });
-    }
-
-    pub fn on_dep(component: ui.Component) void {
-        std.debug.print("Use effect triggered!", .{});
-        _ = component; // autofix
-    }
-
-    pub fn render(component: ui.Component) ui.Dom.NodeId {
-        const self = component.cast(@This());
-        const dom = component.dom;
-        self.signal = ui.createRef(u32).init(component, self.henkie);
-
-        ui.useEffect(component, Button.on_dep, &.{self.signal.id});
-
-        return dom.view(.{
-            .class = "flex flex-col bg-red",
-            .children = &.{
-                dom.text("text-white", dom.fmt("button {d}", .{self.signal.get()})),
-                dom.view(.{
-                    .class = "bg-blue text-white",
-                    .text = dom.fmt("button {d}", .{self.signal.get()}),
-                    .onclick = component.listener(Button.onclick),
-                }),
-                dom.view(.{
-                    .class = "bg-blue",
-                    .children = component.foreach(u8, &self.some_array, Button.list),
-                }),
-            },
-        });
-    }
-
-    pub fn renderable(self: *@This(), dom: *ui.Dom) ui.ComponentInterface {
-        return ui.ComponentInterface{
-            .obj_ptr = ui.Component{ .ptr = self, .dom = dom },
-            .func_ptr = @This().render,
-        };
-    }
-};

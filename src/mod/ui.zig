@@ -112,7 +112,19 @@ pub const Dom = struct {
     }
 
     pub fn c(self: *Self, comptime component: anytype) Self.NodeId {
-        const interface: ComponentInterface = @constCast(component).renderable(self);
+        const type_info = @typeInfo(@TypeOf(component));
+        if (type_info == .Pointer) {
+            if (!@hasDecl(type_info.Pointer.child, "renderable")) {
+                @compileError("Component must have a renderable method");
+            }
+            if (type_info.Pointer.size != .One) {
+                @compileError("Component must be single pointer, cannot be a slice or a many pointer");
+            }
+        } else {
+            @compileError("Component must be a pointer");
+        }
+
+        const interface: Component.Interface = @constCast(component).renderable(self);
         return interface.func_ptr(interface.obj_ptr);
     }
 
@@ -184,11 +196,6 @@ const Listener = struct {
     }
 };
 
-pub const ComponentInterface = struct {
-    obj_ptr: Component,
-    func_ptr: *const fn (ptr: Component) Dom.NodeId,
-};
-
 const ComponentKey = struct {
     id: u32,
     key: []const u8,
@@ -217,6 +224,11 @@ const ComponentKey = struct {
 };
 
 pub const Component = struct {
+    pub const Interface = struct {
+        obj_ptr: Component,
+        func_ptr: *const fn (ptr: Component) Dom.NodeId,
+    };
+
     /// this ptr holds the actual component data, like your custom struct
     ptr: *anyopaque,
     /// we store the ui pointer in the component so its easier to call methods
@@ -240,68 +252,68 @@ pub const Component = struct {
     }
 };
 
-pub fn createRef(
-    comptime T: type,
-) type {
-    return struct {
-        id: usize,
-        component: Component,
+// pub fn createRef(
+//     comptime T: type,
+// ) type {
+//     return struct {
+//         id: usize,
+//         component: Component,
 
-        pub fn init(
-            component: Component,
-            initial_value: T,
-        ) @This() {
-            if (component.dom.persistent.hooks.items.len > component.dom.hooks_counter) {
-                const hook_id = component.dom.hooks_counter;
-                return @This(){
-                    .id = hook_id,
-                    .component = component,
-                };
-            }
+//         pub fn init(
+//             component: Component,
+//             initial_value: T,
+//         ) @This() {
+//             if (component.dom.persistent.hooks.items.len > component.dom.hooks_counter) {
+//                 const hook_id = component.dom.hooks_counter;
+//                 return @This(){
+//                     .id = hook_id,
+//                     .component = component,
+//                 };
+//             }
 
-            const ptr = component.dom.persistent.allocator.create(T) catch unreachable;
-            ptr.* = initial_value;
-            const make = AnyPointer.make(*T, ptr);
-            component.dom.persistent.hooks.append(component.dom.persistent.allocator, Dom.Hook.init(make, component.dom.persistent.id)) catch unreachable;
-            const hook_id = component.dom.hooks_counter;
-            component.dom.hooks_counter += 1;
+//             const ptr = component.dom.persistent.allocator.create(T) catch unreachable;
+//             ptr.* = initial_value;
+//             const make = AnyPointer.make(*T, ptr);
+//             component.dom.persistent.hooks.append(component.dom.persistent.allocator, Dom.Hook.init(make, component.dom.persistent.id)) catch unreachable;
+//             const hook_id = component.dom.hooks_counter;
+//             component.dom.hooks_counter += 1;
 
-            return @This(){
-                .id = hook_id,
-                .component = component,
-            };
-        }
+//             return @This(){
+//                 .id = hook_id,
+//                 .component = component,
+//             };
+//         }
 
-        pub inline fn get(self: @This()) T {
-            return self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).*;
-        }
+//         pub inline fn get(self: @This()) T {
+//             return self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).*;
+//         }
 
-        pub inline fn set(self: @This(), value: T) void {
-            self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).* = value;
-            self.component.dom.persistent.hooks.items[self.id].last_changed = self.component.dom.persistent.id;
-        }
-    };
-}
+//         pub inline fn set(self: @This(), value: T) void {
+//             self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).* = value;
+//             self.component.dom.persistent.hooks.items[self.id].last_changed = self.component.dom.persistent.id;
+//         }
+//     };
+// }
 
-pub fn useEffect(
-    component: Component,
-    callback: *const fn (component: Component) void,
-    dependencies: []const usize,
-) void {
-    var any_mutated = false;
-    for (dependencies) |dep| {
-        if (component.dom.persistent.hooks.items[dep].last_changed == (component.dom.persistent.id - 1)) {
-            any_mutated = true;
-            break;
-        }
-    }
+// pub fn useEffect(
+//     component: Component,
+//     callback: *const fn (component: Component) void,
+//     dependencies: []const usize,
+// ) void {
+//     var any_mutated = false;
+//     for (dependencies) |dep| {
+//         if (component.dom.persistent.hooks.items[dep].last_changed == (component.dom.persistent.id - 1)) {
+//             any_mutated = true;
+//             break;
+//         }
+//     }
 
-    if (!any_mutated) {
-        return;
-    }
+//     if (!any_mutated) {
+//         return;
+//     }
 
-    callback(component);
-}
+//     callback(component);
+// }
 
 pub fn replace(prev: ?*Dom, next: *Dom, prev_node: Dom.NodeId, next_node: Dom.NodeId, yoga_elements: *YogaElements, options: *const Options) !Dom.NodeId {
     if (prev_node != Dom.InvalidNodeId) {
@@ -652,4 +664,69 @@ pub const Mutation = union(enum) {
         node: Dom.NodeId,
         onclick: ?*const fn (Node) void,
     },
+};
+
+pub const Hooks = struct {
+    pub fn createRef(
+        comptime T: type,
+    ) type {
+        return struct {
+            id: usize,
+            component: Component,
+
+            pub fn init(
+                component: Component,
+                initial_value: T,
+            ) @This() {
+                if (component.dom.persistent.hooks.items.len > component.dom.hooks_counter) {
+                    const hook_id = component.dom.hooks_counter;
+                    return @This(){
+                        .id = hook_id,
+                        .component = component,
+                    };
+                }
+
+                const ptr = component.dom.persistent.allocator.create(T) catch unreachable;
+                ptr.* = initial_value;
+                const make = AnyPointer.make(*T, ptr);
+                component.dom.persistent.hooks.append(component.dom.persistent.allocator, Dom.Hook.init(make, component.dom.persistent.id)) catch unreachable;
+                const hook_id = component.dom.hooks_counter;
+                component.dom.hooks_counter += 1;
+
+                return @This(){
+                    .id = hook_id,
+                    .component = component,
+                };
+            }
+
+            pub inline fn get(self: @This()) T {
+                return self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).*;
+            }
+
+            pub inline fn set(self: @This(), value: T) void {
+                self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).* = value;
+                self.component.dom.persistent.hooks.items[self.id].last_changed = self.component.dom.persistent.id;
+            }
+        };
+    }
+
+    pub fn useEffect(
+        component: Component,
+        callback: *const fn (component: Component) void,
+        dependencies: []const usize,
+    ) void {
+        var any_mutated = false;
+        for (dependencies) |dep| {
+            if (component.dom.persistent.hooks.items[dep].last_changed == (component.dom.persistent.id - 1)) {
+                any_mutated = true;
+                break;
+            }
+        }
+
+        if (!any_mutated) {
+            return;
+        }
+
+        callback(component);
+    }
 };

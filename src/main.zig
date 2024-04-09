@@ -133,28 +133,31 @@ pub fn main() !void {
         var dom = ui.Dom.init(allocator, &hooks_storage, &options);
 
         const root = dom.view(.{
-            .class = "flex flex-col",
+            .class = "flex flex-col p-10",
 
             .children = &.{
-                dom.text("font-default bg-blue", dom.fmt("{d}", .{rl.getFPS()})),
-                dom.view(.{
-                    .class = "bg-blue",
-                    .children = &.{
-                        dom.view(.{
-                            .class = "w-400 h-200 bg-red",
-                        }),
-                        dom.text("font-default", "Henk!"),
-                    },
-                }),
+                // dom.text("font-default bg-blue", dom.fmt("{d}", .{rl.getFPS()})),
+                // dom.view(.{
+                //     .class = "bg-blue",
+                //     .children = &.{
+                //         dom.view(.{
+                //             .class = "w-400 h-200 bg-red",
+                //         }),
+                //         dom.text("font-default", "Henk!"),
+                //     },
+                // }),
 
                 dom.c(&Checkbox{}),
             },
         });
 
+        std.log.debug("root_id: {d}", .{root});
+
         var mutations = std.ArrayList(ui.Mutation).init(allocator);
 
         try ui.diff(if (prev_dom != null) &prev_dom.? else null, &dom, prev_root_node, root, &mutations);
 
+        std.log.debug("{any}", .{mutations.items});
         for (mutations.items) |item| {
             switch (item) {
                 ui.Mutation.replace => |data| {

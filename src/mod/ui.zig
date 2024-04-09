@@ -147,6 +147,8 @@ pub const Dom = struct {
             children[index] = cb(component, item, index);
         }
 
+        std.log.debug("slice: {d}", .{children});
+
         return children;
     }
 
@@ -236,8 +238,8 @@ pub const Component = struct {
 
     const Self = @This();
 
-    pub inline fn cast(self: Self, T: type) *T {
-        return @ptrCast(@alignCast(self.ptr));
+    pub inline fn cast(self: Self, T: type) struct { *T, *Dom } {
+        return .{ @ptrCast(@alignCast(self.ptr)), self.dom };
     }
 
     pub fn listener(self: Self, func_ptr: *const fn (c: Self, event: Dom.Event) void) Listener {
@@ -391,9 +393,12 @@ pub fn applyLayoutStyle(yg_node: c.YGNodeRef, options: *const Options, class: []
         if (desc) |font_desc| {
             const atlas = options.font_manager.atlases.get(font_desc).?;
             const size = atlas.measure(text);
-
-            c.YGNodeStyleSetWidth(yg_node, size[0]);
-            c.YGNodeStyleSetHeight(yg_node, size[1]);
+            c.YGNodeStyleSetMinWidth(yg_node, size[0]);
+            c.YGNodeStyleSetMinHeight(yg_node, size[1]);
+            c.YGNodeStyleSetWidthAuto(yg_node);
+            c.YGNodeStyleSetHeightAuto(yg_node);
+            // c.YGNodeStyleSetWidth(yg_node, size[0]);
+            // c.YGNodeStyleSetHeight(yg_node, size[1]);
         }
     }
 
@@ -627,7 +632,7 @@ pub const Node = struct {
             self.style.font_name = font_name;
         }
 
-        if (getClassValue(f32, "rounding-", class)) |f| {
+        if (getClassValue(f32, "rounded-", class)) |f| {
             self.style.rounding = f;
         }
 
@@ -680,6 +685,7 @@ pub const Hooks = struct {
             ) @This() {
                 if (component.dom.persistent.hooks.items.len > component.dom.hooks_counter) {
                     const hook_id = component.dom.hooks_counter;
+                    component.dom.hooks_counter += 1;
                     return @This(){
                         .id = hook_id,
                         .component = component,
@@ -706,6 +712,60 @@ pub const Hooks = struct {
             pub inline fn set(self: @This(), value: T) void {
                 self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).* = value;
                 self.component.dom.persistent.hooks.items[self.id].last_changed = self.component.dom.persistent.id;
+            }
+        };
+    }
+
+    pub fn createList(
+        comptime T: type,
+    ) type {
+        return struct {
+            id: usize,
+            component: Component,
+
+            const List = std.ArrayListUnmanaged(T);
+
+            pub fn init(
+                component: Component,
+                // initial_value: T,
+            ) @This() {
+                if (component.dom.persistent.hooks.items.len > component.dom.hooks_counter) {
+                    const hook_id = component.dom.hooks_counter;
+                    component.dom.hooks_counter += 1;
+                    return @This(){
+                        .id = hook_id,
+                        .component = component,
+                    };
+                }
+                const ptr = component.dom.persistent.allocator.create(List) catch unreachable;
+                ptr.* = List{};
+
+                const make = AnyPointer.make(*List, ptr);
+                component.dom.persistent.hooks.append(component.dom.persistent.allocator, Dom.Hook.init(make, component.dom.persistent.id)) catch unreachable;
+                const hook_id = component.dom.hooks_counter;
+                component.dom.hooks_counter += 1;
+
+                return @This(){
+                    .id = hook_id,
+                    .component = component,
+                };
+            }
+
+            pub inline fn append(self: @This(), item: T) void {
+                const list = self.component.dom.persistent.hooks.items[self.id].ptr.cast(*List);
+                list.append(self.component.dom.persistent.allocator, item) catch unreachable;
+            }
+
+            pub fn slice(self: @This()) []T {
+                const list = self.component.dom.persistent.hooks.items[self.id].ptr.cast(*List);
+                return list.items;
+            }
+
+            pub inline fn set(self: @This(), value: T) void {
+                _ = self; // autofix
+                _ = value; // autofix
+                // self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).* = value;
+                // self.component.dom.persistent.hooks.items[self.id].last_changed = self.component.dom.persistent.id;
             }
         };
     }

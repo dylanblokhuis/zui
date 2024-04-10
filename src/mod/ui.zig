@@ -12,7 +12,7 @@ pub const LayoutDirectionLTR = c.YGDirectionLTR;
 
 pub const Yoga = c;
 
-pub const YogaElements = std.AutoHashMap(Dom.NodeId, YogaNodeRef);
+pub const YogaElements = std.AutoHashMap(u32, YogaNodeRef);
 
 pub const Options = struct {
     font_manager: FontManager,
@@ -44,6 +44,10 @@ pub const Dom = struct {
             return @This(){ .ptr = ptr, .last_changed = dom_id };
         }
     };
+
+    // pub const NodeId = usize;
+    // pub const InvalidNodeId: usize = std.math.maxInt(usize);
+
     /// This data should persist between renders
     pub const Persistent = struct {
         id: usize = 0,
@@ -51,7 +55,7 @@ pub const Dom = struct {
         allocator: Allocator,
     };
 
-    nodes: std.ArrayListUnmanaged(Node) = .{},
+    nodes: std.ArrayListUnmanaged(*Node) = .{},
     allocator: Allocator,
     options: *const Options,
     // hooks: *HooksList,
@@ -59,9 +63,6 @@ pub const Dom = struct {
     hooks_counter: u32 = 0,
 
     const Self = @This();
-
-    pub const NodeId = usize;
-    pub const InvalidNodeId: usize = std.math.maxInt(usize);
 
     pub fn init(allocator: Allocator, persistent: *Persistent, options: *const Options) Self {
         // TODO: we should prob just move this into a bool to save memory
@@ -73,45 +74,58 @@ pub const Dom = struct {
         };
     }
 
-    pub fn appendChild(self: *Self, parent_id: Self.NodeId, child_id: Self.NodeId) void {
-        const parent = &self.nodes.items[parent_id];
+    // pub fn appendChild(self: *Self, parent_id: Self.NodeId, child_id: Self.NodeId) void {
+    //     const parent = &self.nodes.items[parent_id];
 
-        if (parent.first_child == Self.InvalidNodeId) {
-            parent.first_child = child_id;
-        } else {
-            var id = parent.first_child;
-            while (id != Self.InvalidNodeId) {
-                const child = &self.nodes.items[id];
-                if (child.next_sibling == Self.InvalidNodeId) {
-                    child.next_sibling = child_id;
-                    break;
-                }
-                id = child.next_sibling;
-            }
-        }
-    }
+    //     if (parent.first_child == Self.InvalidNodeId) {
+    //         parent.first_child = child_id;
+    //     } else {
+    //         var id = parent.first_child;
+    //         while (id != Self.InvalidNodeId) {
+    //             const child = &self.nodes.items[id];
+    //             if (child.next_sibling == Self.InvalidNodeId) {
+    //                 child.next_sibling = child_id;
+    //                 break;
+    //             }
+    //             id = child.next_sibling;
+    //         }
+    //     }
+    // }
 
-    pub fn view(self: *Self, attributes: NodeAttributes) Self.NodeId {
-        self.nodes.append(self.allocator, Node.init(attributes, self.options)) catch unreachable;
-        const parent_id = self.nodes.items.len - 1;
+    pub fn view(self: *Self, attributes: NodeAttributes) *Node {
+        const parent = self.allocator.create(Node) catch unreachable;
+        parent.* = Node{
+            .attributes = attributes,
+        };
 
         if (attributes.children) |children| {
-            for (children) |child_id| {
-                self.appendChild(parent_id, child_id);
+            for (children) |child_ptr| {
+                if (parent.first_child == null) {
+                    parent.first_child = child_ptr;
+                } else {
+                    var child = parent.first_child;
+                    while (child) |item| {
+                        if (item.next_sibling == null) {
+                            item.next_sibling = child_ptr;
+                            break;
+                        }
+                        child = item.next_sibling;
+                    }
+                }
             }
         }
 
-        return parent_id;
+        return parent;
     }
 
-    pub fn text(self: *Self, class: []const u8, string: []const u8) Self.NodeId {
+    pub fn text(self: *Self, class: []const u8, string: []const u8) *Node {
         return self.view(.{
             .text = string,
             .class = class,
         });
     }
 
-    pub fn c(self: *Self, comptime component: anytype) Self.NodeId {
+    pub fn c(self: *Self, comptime component: anytype) *Node {
         const type_info = @typeInfo(@TypeOf(component));
         if (type_info == .Pointer) {
             if (!@hasDecl(type_info.Pointer.child, "renderable")) {
@@ -141,15 +155,46 @@ pub const Dom = struct {
     ///    return ui.v(.{});
     /// }
     /// ```
-    pub fn foreach(self: *Self, component: Component, comptime T: type, items: []const T, cb: *const fn (component: Component, item: T, index: usize) Dom.NodeId) []Dom.NodeId {
-        var children = self.allocator.alloc(Dom.NodeId, items.len) catch unreachable;
-        for (items, 0..) |item, index| {
-            children[index] = cb(component, item, index);
+    // pub fn foreach(self: *Self, component: Component, comptime T: type, items: []const T, cb: *const fn (component: Component, item: T, index: usize) Dom.NodeId) []Dom.NodeId {
+    //     var children = self.allocator.alloc(Dom.NodeId, items.len) catch unreachable;
+    //     for (items, 0..) |item, index| {
+    //         children[index] = cb(component, item, index);
+    //     }
+
+    //     std.log.debug("slice: {d}", .{children});
+
+    //     return children;
+    // }
+
+    pub fn tree(self: *Dom, root: *Node) Dom.NodeId {
+        root.id = self.nodes.items.len;
+        self.nodes.append(self.allocator, root) catch unreachable;
+
+        var node: ?*Node = root.first_child;
+        while (node) |item| {
+            _ = self.tree(item);
+            node = item.next_sibling;
         }
 
-        std.log.debug("slice: {d}", .{children});
+        return root.id;
+    }
 
-        return children;
+    pub fn print_tree(self: *Dom, node_id: Dom.NodeId, depth: u32) void {
+        if (depth == 0) {
+            std.debug.print("\nTree:\n", .{});
+        }
+        // indent based on depth
+        for (0..depth) |_| {
+            std.debug.print("  ", .{});
+        }
+
+        std.debug.print("Node: {d}\n", .{node_id});
+        const root = self.nodes.items[node_id];
+        var node: ?*Node = root.first_child;
+        while (node) |item| {
+            self.print_tree(item, depth + 1);
+            node = item.next_sibling;
+        }
     }
 
     pub const Event = union(enum) {
@@ -228,7 +273,7 @@ const ComponentKey = struct {
 pub const Component = struct {
     pub const Interface = struct {
         obj_ptr: Component,
-        func_ptr: *const fn (ptr: Component) Dom.NodeId,
+        func_ptr: *const fn (ptr: Component) *Node,
     };
 
     /// this ptr holds the actual component data, like your custom struct
@@ -249,9 +294,9 @@ pub const Component = struct {
         };
     }
 
-    pub fn foreach(self: Self, comptime T: type, items: []const T, cb: *const fn (component: Self, item: T, index: usize) Dom.NodeId) []Dom.NodeId {
-        return self.dom.foreach(self, T, items, cb);
-    }
+    // pub fn foreach(self: Self, comptime T: type, items: []const T, cb: *const fn (component: Self, item: T, index: usize) *Node) []*Node {
+    //     return self.dom.foreach(self, T, items, cb);
+    // }
 };
 
 // pub fn createRef(
@@ -594,7 +639,7 @@ const NodeAttributes = struct {
     class: []const u8 = "",
     text: []const u8 = "",
     onclick: ?Listener = null,
-    children: ?[]const Dom.NodeId = null,
+    children: ?[]const *Node = null,
 };
 
 pub const Style = struct {
@@ -606,9 +651,11 @@ pub const Style = struct {
 };
 
 pub const Node = struct {
+    id: usize = std.math.maxInt(usize),
     attributes: NodeAttributes,
-    first_child: Dom.NodeId = Dom.InvalidNodeId,
-    next_sibling: Dom.NodeId = Dom.InvalidNodeId,
+    first_child: ?*Node = null,
+    next_sibling: ?*Node = null,
+    yoga_ref: YogaNodeRef = null,
     style: Style = Style{},
 
     pub fn init(attributes: NodeAttributes, options: *const Options) Node {

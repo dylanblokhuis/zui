@@ -122,6 +122,8 @@ pub fn main() !void {
         .allocator = std.heap.c_allocator,
     };
 
+    // ui2.example();
+
     // // Wait for the user to close the window.
     while (!rl.windowShouldClose()) {
         _ = current_arena.reset(.retain_capacity);
@@ -132,7 +134,7 @@ pub fn main() !void {
 
         var dom = ui.Dom.init(allocator, &hooks_storage, &options);
 
-        const root = dom.view(.{
+        const root = dom.tree(dom.view(.{
             .class = "flex flex-col p-10",
 
             .children = &.{
@@ -149,7 +151,9 @@ pub fn main() !void {
 
                 dom.c(&Checkbox{}),
             },
-        });
+        }));
+
+        dom.print_tree(root, 0);
 
         std.log.debug("root_id: {d}", .{root});
 

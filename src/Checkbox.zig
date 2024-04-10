@@ -2,6 +2,7 @@ const std = @import("std");
 const Dom = @import("mod/ui.zig").Dom;
 const Component = @import("mod/ui.zig").Component;
 const Hooks = @import("mod/ui.zig").Hooks;
+const Node = @import("mod/ui.zig").Node;
 const Self = @This();
 
 // henkie: u32 = 5,
@@ -16,7 +17,7 @@ list: Hooks.createList(u32) = undefined,
 //     std.debug.print("button clicked! {d}\n", .{self.signal.get()});
 // }
 
-// pub fn list(component: Component, item: u8, index: usize) Dom.NodeId {
+// pub fn list(component: Component, item: u8, index: usize) *Node {
 //     _ = item; // autofix
 //     return component.dom.view(.{
 //         .class = "text-white",
@@ -41,13 +42,13 @@ pub fn onclick(component: Component, event: Dom.Event) void {
     std.log.debug("{any}", .{slice});
 }
 
-pub fn list(component: Component, item: u32, index: usize) Dom.NodeId {
+pub fn list(component: Component, item: u32, index: usize) *Node {
     _ = item; // autofix
     _ = index; // autofix
     return component.dom.view(.{ .class = "text-red", .text = "An item!" });
 }
 
-pub fn render(component: Component) Dom.NodeId {
+pub fn render(component: Component) *Node {
     const self, const dom = component.cast(@This());
     self.is_toggled = Hooks.createRef(bool).init(component, false);
     self.list = Hooks.createList(u32).init(component);
@@ -63,9 +64,9 @@ pub fn render(component: Component) Dom.NodeId {
                 .children = &.{dom.text("text-white", "Click me!")},
             }),
 
-            dom.view(.{
-                .children = dom.foreach(component, u32, self.list.slice(), Self.list),
-            }),
+            // dom.view(.{
+            //     .children = dom.foreach(component, u32, self.list.slice(), Self.list),
+            // }),
 
             dom.text("text-black", "Hello world!!!"),
         },

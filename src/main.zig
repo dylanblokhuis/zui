@@ -9,10 +9,8 @@ const Allocator = std.mem.Allocator;
 
 pub const RLFonts = std.StringArrayHashMap(rl.Texture);
 
-pub fn render(rl_fonts: *const RLFonts, dom: *Dom, node_id: Dom.NodeId, yoga_elements: *Dom.YogaElements, options: *const Dom.Options, parent_offset: @Vector(2, f32)) void {
-    const node = dom.nodes.items[node_id];
-
-    const yoga_node = yoga_elements.get(node_id).?;
+pub fn render(rl_fonts: *const RLFonts, dom: *Dom, node: *Dom.Node, yoga_elements: *Dom.YogaElements, options: *const Dom.Options, parent_offset: @Vector(2, f32)) void {
+    const yoga_node = yoga_elements.get(node.id).?;
     const x = Yoga.YGNodeLayoutGetLeft(yoga_node);
     const y = Yoga.YGNodeLayoutGetTop(yoga_node);
     const width = Yoga.YGNodeLayoutGetWidth(yoga_node);
@@ -60,11 +58,10 @@ pub fn render(rl_fonts: *const RLFonts, dom: *Dom, node_id: Dom.NodeId, yoga_ele
         }
     }
 
-    var child = node.first_child;
-    while (child) |c| {
-        const child_node = dom.nodes.items[c.id];
-        render(rl_fonts, dom, c.id, yoga_elements, options, @Vector(2, f32){ parent_x_offset, parent_y_offset });
-        child = child_node.next_sibling;
+    var maybe_child = node.first_child;
+    while (maybe_child) |child| {
+        render(rl_fonts, dom, child, yoga_elements, options, @Vector(2, f32){ parent_x_offset, parent_y_offset });
+        maybe_child = child.next_sibling;
     }
 }
 
@@ -108,10 +105,10 @@ pub fn main() !void {
         }
     }
 
-    var first_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    var second_arena: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var first_arena = std.heap.ArenaAllocator.init(std.heap.c_allocator);
+    var second_arena: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(std.heap.c_allocator);
     var prev_dom: ?Dom = null;
-    var prev_root_node: ?Dom.NodeId = null;
+    var prev_root_node: ?*Dom.Node = null;
 
     var current_arena = &first_arena;
     var is_first_arena = true;
@@ -171,14 +168,12 @@ pub fn main() !void {
     }
 }
 
-pub fn doYoga(dom: *Dom, node_id: Dom.NodeId, yoga_elements: *Dom.YogaElements) Yoga.YGNodeRef {
-    const node = dom.nodes.items[node_id];
-
-    const yg_node = if (yoga_elements.get(node_id)) |yg| blk: {
+pub fn doYoga(dom: *Dom, node: *Dom.Node, yoga_elements: *Dom.YogaElements) Yoga.YGNodeRef {
+    const yg_node = if (yoga_elements.get(node.id)) |yg| blk: {
         break :blk yg;
     } else blk: {
         const yg_node = Yoga.YGNodeNew();
-        yoga_elements.put(node_id, yg_node) catch unreachable;
+        yoga_elements.put(node.id, yg_node) catch unreachable;
         break :blk yg_node;
     };
 
@@ -189,10 +184,10 @@ pub fn doYoga(dom: *Dom, node_id: Dom.NodeId, yoga_elements: *Dom.YogaElements) 
         Dom.applyLayoutStyle(yg_node, dom.options, class, node.attributes.text);
     }
 
-    var child = node.first_child;
+    var maybe_child = node.first_child;
     var index: usize = 0;
-    while (child) |c| {
-        const c_yg_node = doYoga(dom, c.id, yoga_elements);
+    while (maybe_child) |child| {
+        const c_yg_node = doYoga(dom, child, yoga_elements);
 
         const parent_node = Yoga.YGNodeGetParent(c_yg_node);
         if (parent_node == null) {
@@ -202,7 +197,7 @@ pub fn doYoga(dom: *Dom, node_id: Dom.NodeId, yoga_elements: *Dom.YogaElements) 
             Yoga.YGNodeInsertChild(yg_node, c_yg_node, index);
         }
 
-        child = dom.nodes.items[c.id].next_sibling;
+        maybe_child = child.next_sibling;
         index += 1;
     }
 

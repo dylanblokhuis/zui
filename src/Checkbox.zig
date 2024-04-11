@@ -4,17 +4,17 @@ const Component = Dom.Component;
 
 const Self = @This();
 
-is_toggled: Component.createRef(bool) = undefined,
-list: Component.createList(u32) = undefined,
+is_toggled: Component.useRef(bool) = undefined,
+list: Component.useRef(std.ArrayListUnmanaged(u32)) = undefined,
 
 pub fn on_dep(component: Component) void {
     const self, _ = component.cast(@This());
-    self.list.append(std.crypto.random.int(u32));
+    self.list.get().append(component.gpa(), std.crypto.random.int(u32)) catch unreachable;
 }
 
 pub fn onclick(component: Component, _: Dom.Event) void {
     const self, _ = component.cast(@This());
-    self.is_toggled.set(!self.is_toggled.get());
+    self.is_toggled.set(!self.is_toggled.get().*);
 }
 
 pub fn list(component: Component, item: u32, _: usize) *Dom.Node {
@@ -26,8 +26,8 @@ pub fn list(component: Component, item: u32, _: usize) *Dom.Node {
 
 pub fn render(component: Component) *Dom.Node {
     const self, const dom = component.cast(@This());
-    self.is_toggled = Component.createRef(bool).init(component, false);
-    self.list = Component.createList(u32).init(component);
+    self.is_toggled = Component.useRef(bool).init(component, false);
+    self.list = Component.useRef(std.ArrayListUnmanaged(u32)).init(component, .{});
 
     Component.useEffect(component, Self.on_dep, &.{self.is_toggled.id});
 
@@ -35,7 +35,7 @@ pub fn render(component: Component) *Dom.Node {
         .class = "flex flex-row items-center gap-8",
         .children = &.{
             dom.view(.{
-                .class = dom.fmt("{s} rounded-0.5 p-8", .{if (self.is_toggled.get()) "bg-blue" else "bg-red"}),
+                .class = dom.fmt("{s} rounded-0.5 p-8", .{if (self.is_toggled.get().*) "bg-blue" else "bg-red"}),
                 .children = &.{dom.text("text-white", "Click me!")},
                 .onclick = component.listener(Self.onclick),
             }),
@@ -46,7 +46,7 @@ pub fn render(component: Component) *Dom.Node {
             }),
 
             dom.view(.{
-                .children = dom.foreach(component, u32, self.list.slice(), Self.list),
+                .children = dom.foreach(component, u32, self.list.get().items, Self.list),
             }),
 
             dom.text("text-black", "Hello world!!!"),

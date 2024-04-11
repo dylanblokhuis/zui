@@ -11,13 +11,13 @@ pub const YogaNodeRef = c.YGNodeRef;
 
 pub const Yoga = c;
 
-pub const YogaElements = std.AutoHashMap(Self.NodeId, YogaNodeRef);
+pub const YogaElements = std.AutoHashMap(usize, YogaNodeRef);
 
-nodes: std.ArrayListUnmanaged(*Node) = .{},
 allocator: Allocator,
 options: *const Options,
 // hooks: *HooksList,
 persistent: *Persistent,
+id_counter: usize = 0,
 hooks_counter: u32 = 0,
 
 pub const Options = struct {
@@ -113,7 +113,6 @@ pub const Node = struct {
     }
 };
 
-pub const NodeId = usize;
 // pub const InvalidNodeId: usize = std.math.maxInt(usize);
 
 /// This data should persist between renders
@@ -132,24 +131,6 @@ pub fn init(allocator: Allocator, persistent: *Persistent, options: *const Optio
         .options = options,
     };
 }
-
-// pub fn appendChild(self: *Self, parent_id: Self.NodeId, child_id: Self.NodeId) void {
-//     const parent = &self.nodes.items[parent_id];
-
-//     if (parent.first_child == Self.InvalidNodeId) {
-//         parent.first_child = child_id;
-//     } else {
-//         var id = parent.first_child;
-//         while (id != Self.InvalidNodeId) {
-//             const child = &self.nodes.items[id];
-//             if (child.next_sibling == Self.InvalidNodeId) {
-//                 child.next_sibling = child_id;
-//                 break;
-//             }
-//             id = child.next_sibling;
-//         }
-//     }
-// }
 
 pub fn view(self: *Self, attributes: Node.Attributes) *Node {
     const parent = self.allocator.create(Node) catch unreachable;
@@ -220,9 +201,9 @@ pub fn foreach(self: *Self, component: Component, comptime T: type, items: []con
     return children;
 }
 
-pub fn tree(self: *Self, root: *Node) Self.NodeId {
-    root.id = self.nodes.items.len;
-    self.nodes.append(self.allocator, root) catch unreachable;
+pub fn tree(self: *Self, root: *Node) *Node {
+    root.id = self.id_counter;
+    self.id_counter += 1;
 
     var node: ?*Node = root.first_child;
     while (node) |item| {
@@ -230,10 +211,10 @@ pub fn tree(self: *Self, root: *Node) Self.NodeId {
         node = item.next_sibling;
     }
 
-    return root.id;
+    return root;
 }
 
-pub fn print_tree(self: *Self, node_id: Self.NodeId, depth: u32) void {
+pub fn print_tree(self: *Self, node: *Node, depth: u32) void {
     if (depth == 0) {
         std.debug.print("\nTree:\n", .{});
     }
@@ -242,12 +223,11 @@ pub fn print_tree(self: *Self, node_id: Self.NodeId, depth: u32) void {
         std.debug.print("  ", .{});
     }
 
-    std.debug.print("Node: {d}\n", .{node_id});
-    const root = self.nodes.items[node_id];
-    var node: ?*Node = root.first_child;
-    while (node) |item| {
-        self.print_tree(item.id, depth + 1);
-        node = item.next_sibling;
+    std.debug.print("Node: {d}\n", .{node.id});
+    var maybe_node: ?*Node = node.first_child;
+    while (maybe_node) |item| {
+        self.print_tree(item, depth + 1);
+        maybe_node = item.next_sibling;
     }
 }
 
@@ -258,9 +238,8 @@ pub const Event = union(enum) {
     },
 };
 
-pub fn handle_event(self: *Self, yoga_elements: *YogaElements, parent_offset: @Vector(2, f32), node_id: Self.NodeId, event: Event) void {
-    const node = self.nodes.items[node_id];
-    const yoga_node = yoga_elements.get(node_id).?;
+pub fn handle_event(self: *Self, yoga_elements: *YogaElements, parent_offset: @Vector(2, f32), node: *Node, event: Event) void {
+    const yoga_node = yoga_elements.get(node.id).?;
 
     const rect = @Vector(4, f32){
         parent_offset[0] + Yoga.YGNodeLayoutGetLeft(yoga_node),
@@ -279,11 +258,10 @@ pub fn handle_event(self: *Self, yoga_elements: *YogaElements, parent_offset: @V
         },
     }
 
-    var child = node.first_child;
-    while (child) |ch| {
-        const child_node = self.nodes.items[ch.id];
-        self.handle_event(yoga_elements, @Vector(2, f32){ rect[0], rect[1] }, ch.id, event);
-        child = child_node.next_sibling;
+    var maybe_child = node.first_child;
+    while (maybe_child) |child| {
+        self.handle_event(yoga_elements, @Vector(2, f32){ rect[0], rect[1] }, child, event);
+        maybe_child = child.next_sibling;
     }
 }
 
@@ -345,11 +323,19 @@ pub const Component = struct {
         };
     }
 
+    pub inline fn arena(self: @This()) Allocator {
+        return self.dom.allocator;
+    }
+
+    pub inline fn gpa(self: @This()) Allocator {
+        return self.dom.persistent.allocator;
+    }
+
     // pub fn foreach(self: Self, comptime T: type, items: []const T, cb: *const fn (component: Self, item: T, index: usize) *Node) []*Node {
     //     return self.dom.foreach(self, T, items, cb);
     // }
 
-    pub fn createRef(
+    pub fn useRef(
         comptime T: type,
     ) type {
         return struct {
@@ -382,67 +368,13 @@ pub const Component = struct {
                 };
             }
 
-            pub inline fn get(self: @This()) T {
-                return self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).*;
+            pub inline fn get(self: @This()) *T {
+                return self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T);
             }
 
             pub inline fn set(self: @This(), value: T) void {
                 self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).* = value;
                 self.component.dom.persistent.hooks.items[self.id].last_changed = self.component.dom.persistent.id;
-            }
-        };
-    }
-
-    pub fn createList(
-        comptime T: type,
-    ) type {
-        return struct {
-            id: usize,
-            component: Component,
-
-            const List = std.ArrayListUnmanaged(T);
-
-            pub fn init(
-                component: Component,
-                // initial_value: T,
-            ) @This() {
-                if (component.dom.persistent.hooks.items.len > component.dom.hooks_counter) {
-                    const hook_id = component.dom.hooks_counter;
-                    component.dom.hooks_counter += 1;
-                    return @This(){
-                        .id = hook_id,
-                        .component = component,
-                    };
-                }
-                const ptr = component.dom.persistent.allocator.create(List) catch unreachable;
-                ptr.* = List{};
-
-                const make = AnyPointer.make(*List, ptr);
-                component.dom.persistent.hooks.append(component.dom.persistent.allocator, Self.Hook.init(make, component.dom.persistent.id)) catch unreachable;
-                const hook_id = component.dom.hooks_counter;
-                component.dom.hooks_counter += 1;
-
-                return @This(){
-                    .id = hook_id,
-                    .component = component,
-                };
-            }
-
-            pub inline fn append(self: @This(), item: T) void {
-                const list = self.component.dom.persistent.hooks.items[self.id].ptr.cast(*List);
-                list.append(self.component.dom.persistent.allocator, item) catch unreachable;
-            }
-
-            pub fn slice(self: @This()) []T {
-                const list = self.component.dom.persistent.hooks.items[self.id].ptr.cast(*List);
-                return list.items;
-            }
-
-            pub inline fn set(self: @This(), value: T) void {
-                _ = self; // autofix
-                _ = value; // autofix
-                // self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).* = value;
-                // self.component.dom.persistent.hooks.items[self.id].last_changed = self.component.dom.persistent.id;
             }
         };
     }

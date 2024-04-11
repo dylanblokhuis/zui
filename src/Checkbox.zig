@@ -1,12 +1,11 @@
 const std = @import("std");
-const Dom = @import("mod/ui.zig").Dom;
-const Component = @import("mod/ui.zig").Component;
-const Hooks = @import("mod/ui.zig").Hooks;
-const Node = @import("mod/ui.zig").Node;
+const Dom = @import("mod/ui.zig");
+const Component = Dom.Component;
+
 const Self = @This();
 
-is_toggled: Hooks.createRef(bool) = undefined,
-list: Hooks.createList(u32) = undefined,
+is_toggled: Component.createRef(bool) = undefined,
+list: Component.createList(u32) = undefined,
 
 pub fn on_dep(component: Component) void {
     const self, _ = component.cast(@This());
@@ -18,19 +17,19 @@ pub fn onclick(component: Component, _: Dom.Event) void {
     self.is_toggled.set(!self.is_toggled.get());
 }
 
-pub fn list(component: Component, item: u32, _: usize) *Node {
+pub fn list(component: Component, item: u32, _: usize) *Dom.Node {
     return component.dom.view(.{
         .class = "text-red",
         .text = component.dom.fmt("Item {d}", .{item}),
     });
 }
 
-pub fn render(component: Component) *Node {
+pub fn render(component: Component) *Dom.Node {
     const self, const dom = component.cast(@This());
-    self.is_toggled = Hooks.createRef(bool).init(component, false);
-    self.list = Hooks.createList(u32).init(component);
+    self.is_toggled = Component.createRef(bool).init(component, false);
+    self.list = Component.createList(u32).init(component);
 
-    Hooks.useEffect(component, Self.on_dep, &.{self.is_toggled.id});
+    Component.useEffect(component, Self.on_dep, &.{self.is_toggled.id});
 
     return dom.view(.{
         .class = "flex flex-row items-center gap-8",

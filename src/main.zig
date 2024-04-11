@@ -1,21 +1,22 @@
 const std = @import("std");
 const rl = @import("raylib");
 const freetype = @import("freetype");
-const ui = @import("mod/ui.zig");
+const Dom = @import("mod/ui.zig");
+const Yoga = Dom.Yoga;
 pub const Checkbox = @import("Checkbox.zig");
 
 const Allocator = std.mem.Allocator;
 
 pub const RLFonts = std.StringArrayHashMap(rl.Texture);
 
-pub fn render(rl_fonts: *const RLFonts, dom: *ui.Dom, node_id: ui.Dom.NodeId, yoga_elements: *ui.YogaElements, options: *const ui.Options, parent_offset: @Vector(2, f32)) void {
+pub fn render(rl_fonts: *const RLFonts, dom: *Dom, node_id: Dom.NodeId, yoga_elements: *Dom.YogaElements, options: *const Dom.Options, parent_offset: @Vector(2, f32)) void {
     const node = dom.nodes.items[node_id];
 
     const yoga_node = yoga_elements.get(node_id).?;
-    const x = ui.Yoga.YGNodeLayoutGetLeft(yoga_node);
-    const y = ui.Yoga.YGNodeLayoutGetTop(yoga_node);
-    const width = ui.Yoga.YGNodeLayoutGetWidth(yoga_node);
-    const height = ui.Yoga.YGNodeLayoutGetHeight(yoga_node);
+    const x = Yoga.YGNodeLayoutGetLeft(yoga_node);
+    const y = Yoga.YGNodeLayoutGetTop(yoga_node);
+    const width = Yoga.YGNodeLayoutGetWidth(yoga_node);
+    const height = Yoga.YGNodeLayoutGetHeight(yoga_node);
 
     const parent_x_offset = parent_offset[0] + x;
     const parent_y_offset = parent_offset[1] + y;
@@ -74,9 +75,9 @@ pub fn main() !void {
     rl.setWindowMonitor(0);
     // rl.setTargetFPS(24);
 
-    var yoga_elements = ui.YogaElements.init(std.heap.c_allocator);
+    var yoga_elements = Dom.YogaElements.init(std.heap.c_allocator);
 
-    var options = ui.Options.init(std.heap.c_allocator);
+    var options = Dom.Options.init(std.heap.c_allocator);
     {
         try options.colors.put("red", @Vector(4, u8){ 255, 0, 0, 255 });
         try options.colors.put("green", @Vector(4, u8){ 0, 255, 0, 255 });
@@ -109,13 +110,13 @@ pub fn main() !void {
 
     var first_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     var second_arena: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    var prev_dom: ?ui.Dom = null;
-    var prev_root_node: ?ui.Dom.NodeId = null;
+    var prev_dom: ?Dom = null;
+    var prev_root_node: ?Dom.NodeId = null;
 
     var current_arena = &first_arena;
     var is_first_arena = true;
 
-    var hooks_storage = ui.Dom.Persistent{
+    var hooks_storage = Dom.Persistent{
         .allocator = std.heap.c_allocator,
     };
 
@@ -129,7 +130,7 @@ pub fn main() !void {
         rl.beginDrawing();
         rl.clearBackground(rl.Color.white);
 
-        var dom = ui.Dom.init(allocator, &hooks_storage, &options);
+        var dom = Dom.init(allocator, &hooks_storage, &options);
 
         const root = dom.tree(dom.view(.{
             .class = "flex flex-col p-10",
@@ -147,14 +148,14 @@ pub fn main() !void {
                 //     },
                 // }),
 
-                dom.c(&Checkbox{}),
+                dom.custom(&Checkbox{}),
             },
         }));
 
         // dom.print_tree(root, 0);
 
         const yg_root_node = doYoga(&dom, root, &yoga_elements);
-        ui.CalculateLayout(yg_root_node, @floatFromInt(rl.getScreenWidth()), @floatFromInt(rl.getScreenHeight()), ui.LayoutDirectionLTR);
+        Yoga.YGNodeCalculateLayout(yg_root_node, @floatFromInt(rl.getScreenWidth()), @floatFromInt(rl.getScreenHeight()), Yoga.YGDirectionLTR);
 
         if (rl.isMouseButtonPressed(.mouse_button_left)) {
             dom.handle_event(&yoga_elements, .{ 0, 0 }, root, .{
@@ -181,13 +182,13 @@ pub fn main() !void {
     }
 }
 
-pub fn doYoga(dom: *ui.Dom, node_id: ui.Dom.NodeId, yoga_elements: *ui.YogaElements) ui.Yoga.YGNodeRef {
+pub fn doYoga(dom: *Dom, node_id: Dom.NodeId, yoga_elements: *Dom.YogaElements) Yoga.YGNodeRef {
     const node = dom.nodes.items[node_id];
 
     const yg_node = if (yoga_elements.get(node_id)) |yg| blk: {
         break :blk yg;
     } else blk: {
-        const yg_node = ui.Yoga.YGNodeNew();
+        const yg_node = Yoga.YGNodeNew();
         yoga_elements.put(node_id, yg_node) catch unreachable;
         break :blk yg_node;
     };
@@ -196,7 +197,7 @@ pub fn doYoga(dom: *ui.Dom, node_id: ui.Dom.NodeId, yoga_elements: *ui.YogaEleme
     while (classes.next()) |class| {
         node.applyStyle(dom.options, class);
         // TODO: we need to reset the node here if the class was different last frame
-        ui.applyLayoutStyle(yg_node, dom.options, class, node.attributes.text);
+        Dom.applyLayoutStyle(yg_node, dom.options, class, node.attributes.text);
     }
 
     var child = node.first_child;
@@ -204,12 +205,12 @@ pub fn doYoga(dom: *ui.Dom, node_id: ui.Dom.NodeId, yoga_elements: *ui.YogaEleme
     while (child) |c| {
         const c_yg_node = doYoga(dom, c.id, yoga_elements);
 
-        const parent_node = ui.Yoga.YGNodeGetParent(c_yg_node);
+        const parent_node = Yoga.YGNodeGetParent(c_yg_node);
         if (parent_node == null) {
-            ui.Yoga.YGNodeInsertChild(yg_node, c_yg_node, index);
+            Yoga.YGNodeInsertChild(yg_node, c_yg_node, index);
         } else if (parent_node != yg_node) {
-            ui.Yoga.YGNodeRemoveChild(parent_node, c_yg_node);
-            ui.Yoga.YGNodeInsertChild(yg_node, c_yg_node, index);
+            Yoga.YGNodeRemoveChild(parent_node, c_yg_node);
+            Yoga.YGNodeInsertChild(yg_node, c_yg_node, index);
         }
 
         child = dom.nodes.items[c.id].next_sibling;

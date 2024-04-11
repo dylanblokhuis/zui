@@ -5,235 +5,293 @@ const c = @cImport({
 });
 const FontManager = @import("font.zig");
 const AnyPointer = @import("../libs/any-pointer.zig").AnyPointer;
+const Self = @This();
 
 pub const YogaNodeRef = c.YGNodeRef;
-pub const CalculateLayout = c.YGNodeCalculateLayout;
-pub const LayoutDirectionLTR = c.YGDirectionLTR;
 
 pub const Yoga = c;
 
-pub const YogaElements = std.AutoHashMap(Dom.NodeId, YogaNodeRef);
+pub const YogaElements = std.AutoHashMap(Self.NodeId, YogaNodeRef);
+
+nodes: std.ArrayListUnmanaged(*Node) = .{},
+allocator: Allocator,
+options: *const Options,
+// hooks: *HooksList,
+persistent: *Persistent,
+hooks_counter: u32 = 0,
 
 pub const Options = struct {
     font_manager: FontManager,
     font_name_to_desc: std.StringHashMapUnmanaged(FontManager.FontDesc),
     colors: std.StringHashMap(@Vector(4, u8)),
 
-    const Self = @This();
-
-    pub fn init(allocator: Allocator) Self {
-        return Self{
+    pub fn init(allocator: Allocator) @This() {
+        return @This(){
             .colors = std.StringHashMap(@Vector(4, u8)).init(allocator),
             .font_name_to_desc = std.StringHashMapUnmanaged(FontManager.FontDesc){},
             .font_manager = FontManager.init(allocator),
         };
     }
 
-    pub fn loadFont(self: *Self, allocator: Allocator, name: []const u8, desc: FontManager.FontDesc) !void {
+    pub fn loadFont(self: *@This(), allocator: Allocator, name: []const u8, desc: FontManager.FontDesc) !void {
         try self.font_manager.create_atlas(desc, allocator);
         try self.font_name_to_desc.put(allocator, name, desc);
     }
 };
 
-pub const Dom = struct {
-    pub const Hook = struct {
-        ptr: AnyPointer,
-        last_changed: usize,
+pub const Hook = struct {
+    ptr: AnyPointer,
+    last_changed: usize,
 
-        pub fn init(ptr: AnyPointer, dom_id: usize) @This() {
-            return @This(){ .ptr = ptr, .last_changed = dom_id };
-        }
+    pub fn init(ptr: AnyPointer, dom_id: usize) @This() {
+        return @This(){ .ptr = ptr, .last_changed = dom_id };
+    }
+};
+
+pub const Node = struct {
+    const Attributes = struct {
+        key: []const u8 = "",
+        class: []const u8 = "",
+        text: []const u8 = "",
+        onclick: ?Listener = null,
+        children: ?[]const *Self.Node = null,
     };
 
-    pub const NodeId = usize;
-    // pub const InvalidNodeId: usize = std.math.maxInt(usize);
-
-    /// This data should persist between renders
-    pub const Persistent = struct {
-        id: usize = 0,
-        hooks: std.ArrayListUnmanaged(Hook) = .{},
-        allocator: Allocator,
+    pub const Style = struct {
+        background_color: @Vector(4, u8) = @Vector(4, u8){ 0, 0, 0, 0 },
+        /// text color
+        color: @Vector(4, u8) = @Vector(4, u8){ 0, 0, 0, 255 },
+        font_name: []const u8 = "default",
+        rounding: f32 = 0.0,
     };
 
-    nodes: std.ArrayListUnmanaged(*Node) = .{},
-    allocator: Allocator,
-    options: *const Options,
-    // hooks: *HooksList,
-    persistent: *Persistent,
-    hooks_counter: u32 = 0,
+    id: usize = std.math.maxInt(usize),
+    attributes: Attributes,
+    first_child: ?*Node = null,
+    next_sibling: ?*Node = null,
+    yoga_ref: YogaNodeRef = null,
+    style: Style = Style{},
 
-    const Self = @This();
-
-    pub fn init(allocator: Allocator, persistent: *Persistent, options: *const Options) Self {
-        // TODO: we should prob just move this into a bool to save memory
-        persistent.id = (persistent.id + 1) % std.math.maxInt(usize);
-        return Self{
-            .allocator = allocator,
-            .persistent = persistent,
-            .options = options,
+    pub fn init(attributes: Attributes, options: *const Options) Node {
+        var node = Node{
+            .attributes = attributes,
         };
+        node.setStyleFromAttributes(options);
+
+        return node;
     }
 
-    // pub fn appendChild(self: *Self, parent_id: Self.NodeId, child_id: Self.NodeId) void {
-    //     const parent = &self.nodes.items[parent_id];
-
-    //     if (parent.first_child == Self.InvalidNodeId) {
-    //         parent.first_child = child_id;
-    //     } else {
-    //         var id = parent.first_child;
-    //         while (id != Self.InvalidNodeId) {
-    //             const child = &self.nodes.items[id];
-    //             if (child.next_sibling == Self.InvalidNodeId) {
-    //                 child.next_sibling = child_id;
-    //                 break;
-    //             }
-    //             id = child.next_sibling;
-    //         }
-    //     }
-    // }
-
-    pub fn view(self: *Self, attributes: NodeAttributes) *Node {
-        const parent = self.allocator.create(Node) catch unreachable;
-        parent.* = Node.init(attributes, self.options);
-
-        if (attributes.children) |children| {
-            for (children) |child_ptr| {
-                if (parent.first_child == null) {
-                    parent.first_child = child_ptr;
-                } else {
-                    var child = parent.first_child;
-                    while (child) |item| {
-                        if (item.next_sibling == null) {
-                            item.next_sibling = child_ptr;
-                            break;
-                        }
-                        child = item.next_sibling;
-                    }
-                }
-            }
-        }
-
-        return parent;
-    }
-
-    pub fn text(self: *Self, class: []const u8, string: []const u8) *Node {
-        return self.view(.{
-            .text = string,
-            .class = class,
-        });
-    }
-
-    pub fn c(self: *Self, comptime component: anytype) *Node {
-        const type_info = @typeInfo(@TypeOf(component));
-        if (type_info == .Pointer) {
-            if (!@hasDecl(type_info.Pointer.child, "renderable")) {
-                @compileError("Component must have a renderable method");
-            }
-            if (type_info.Pointer.size != .One) {
-                @compileError("Component must be single pointer, cannot be a slice or a many pointer");
-            }
-        } else {
-            @compileError("Component must be a pointer");
-        }
-
-        const interface: Component.Interface = @constCast(component).renderable(self);
-        return interface.func_ptr(interface.obj_ptr);
-    }
-
-    pub fn fmt(self: *Self, comptime format: []const u8, args: anytype) []u8 {
-        return std.fmt.allocPrint(self.allocator, format, args) catch unreachable;
-    }
-
-    ///
-    ///
-    /// example input:
-    ///
-    /// ```zig
-    /// pub fn list(ui: *zui, item: T, index: usize) zui.ViewNode {
-    ///    return ui.v(.{});
-    /// }
-    /// ```
-    pub fn foreach(self: *Self, component: Component, comptime T: type, items: []const T, cb: *const fn (component: Component, item: T, index: usize) *Node) []*Node {
-        var children = self.allocator.alloc(*Node, items.len) catch unreachable;
-        for (items, 0..) |item, index| {
-            children[index] = cb(component, item, index);
-        }
-        return children;
-    }
-
-    pub fn tree(self: *Dom, root: *Node) Dom.NodeId {
-        root.id = self.nodes.items.len;
-        self.nodes.append(self.allocator, root) catch unreachable;
-
-        var node: ?*Node = root.first_child;
-        while (node) |item| {
-            _ = self.tree(item);
-            node = item.next_sibling;
-        }
-
-        return root.id;
-    }
-
-    pub fn print_tree(self: *Dom, node_id: Dom.NodeId, depth: u32) void {
-        if (depth == 0) {
-            std.debug.print("\nTree:\n", .{});
-        }
-        // indent based on depth
-        for (0..depth) |_| {
-            std.debug.print("  ", .{});
-        }
-
-        std.debug.print("Node: {d}\n", .{node_id});
-        const root = self.nodes.items[node_id];
-        var node: ?*Node = root.first_child;
-        while (node) |item| {
-            self.print_tree(item.id, depth + 1);
-            node = item.next_sibling;
+    pub fn setStyleFromAttributes(self: *Node, options: *const Options) void {
+        var classes = std.mem.splitSequence(u8, self.attributes.class, " ");
+        while (classes.next()) |class| {
+            self.applyStyle(options, class);
         }
     }
 
-    pub const Event = union(enum) {
-        click: struct {
-            x: f32,
-            y: f32,
-        },
-    };
-
-    pub fn handle_event(self: *Self, yoga_elements: *YogaElements, parent_offset: @Vector(2, f32), node_id: Self.NodeId, event: Event) void {
-        const node = self.nodes.items[node_id];
-        const yoga_node = yoga_elements.get(node_id).?;
-
-        const rect = @Vector(4, f32){
-            parent_offset[0] + Yoga.YGNodeLayoutGetLeft(yoga_node),
-            parent_offset[1] + Yoga.YGNodeLayoutGetTop(yoga_node),
-            Yoga.YGNodeLayoutGetWidth(yoga_node),
-            Yoga.YGNodeLayoutGetHeight(yoga_node),
-        };
-
-        switch (event) {
-            .click => |data| {
-                if (rect[0] <= data.x and data.x <= rect[0] + rect[2] and rect[1] <= data.y and data.y <= rect[1] + rect[3]) {
-                    if (node.attributes.onclick) |listener| {
-                        listener.call(event);
-                    }
-                }
-            },
+    pub fn applyStyle(self: *Node, options: *const Options, class: []const u8) void {
+        if (getClassSlice("font-", class)) |font_name| {
+            self.style.font_name = font_name;
         }
 
-        var child = node.first_child;
-        while (child) |ch| {
-            const child_node = self.nodes.items[ch.id];
-            self.handle_event(yoga_elements, @Vector(2, f32){ rect[0], rect[1] }, ch.id, event);
-            child = child_node.next_sibling;
+        if (getClassValue(f32, "rounded-", class)) |f| {
+            self.style.rounding = f;
+        }
+
+        if (getClassSlice("bg-", class)) |color| {
+            self.style.background_color = options.colors.get(color) orelse blk: {
+                std.debug.print("color not found: {s}\n", .{color});
+                break :blk @Vector(4, u8){ 0, 0, 0, 255 };
+            };
+        }
+
+        if (getClassSlice("text-", class)) |color| {
+            self.style.color = options.colors.get(color) orelse blk: {
+                std.debug.print("color not found: {s}\n", .{color});
+                break :blk @Vector(4, u8){ 0, 0, 0, 255 };
+            };
         }
     }
 };
 
+pub const NodeId = usize;
+// pub const InvalidNodeId: usize = std.math.maxInt(usize);
+
+/// This data should persist between renders
+pub const Persistent = struct {
+    id: usize = 0,
+    hooks: std.ArrayListUnmanaged(Hook) = .{},
+    allocator: Allocator,
+};
+
+pub fn init(allocator: Allocator, persistent: *Persistent, options: *const Options) Self {
+    // TODO: we should prob just move this into a bool to save memory
+    persistent.id = (persistent.id + 1) % std.math.maxInt(usize);
+    return Self{
+        .allocator = allocator,
+        .persistent = persistent,
+        .options = options,
+    };
+}
+
+// pub fn appendChild(self: *Self, parent_id: Self.NodeId, child_id: Self.NodeId) void {
+//     const parent = &self.nodes.items[parent_id];
+
+//     if (parent.first_child == Self.InvalidNodeId) {
+//         parent.first_child = child_id;
+//     } else {
+//         var id = parent.first_child;
+//         while (id != Self.InvalidNodeId) {
+//             const child = &self.nodes.items[id];
+//             if (child.next_sibling == Self.InvalidNodeId) {
+//                 child.next_sibling = child_id;
+//                 break;
+//             }
+//             id = child.next_sibling;
+//         }
+//     }
+// }
+
+pub fn view(self: *Self, attributes: Node.Attributes) *Node {
+    const parent = self.allocator.create(Node) catch unreachable;
+    parent.* = Node.init(attributes, self.options);
+
+    if (attributes.children) |children| {
+        for (children) |child_ptr| {
+            if (parent.first_child == null) {
+                parent.first_child = child_ptr;
+            } else {
+                var child = parent.first_child;
+                while (child) |item| {
+                    if (item.next_sibling == null) {
+                        item.next_sibling = child_ptr;
+                        break;
+                    }
+                    child = item.next_sibling;
+                }
+            }
+        }
+    }
+
+    return parent;
+}
+
+pub fn text(self: *Self, class: []const u8, string: []const u8) *Node {
+    return self.view(.{
+        .text = string,
+        .class = class,
+    });
+}
+
+pub fn custom(self: *Self, comptime component: anytype) *Node {
+    const type_info = @typeInfo(@TypeOf(component));
+    if (type_info == .Pointer) {
+        if (!@hasDecl(type_info.Pointer.child, "renderable")) {
+            @compileError("Component must have a renderable method");
+        }
+        if (type_info.Pointer.size != .One) {
+            @compileError("Component must be single pointer, cannot be a slice or a many pointer");
+        }
+    } else {
+        @compileError("Component must be a pointer");
+    }
+
+    const interface: Component.Interface = @constCast(component).renderable(self);
+    return interface.func_ptr(interface.obj_ptr);
+}
+
+pub fn fmt(self: *Self, comptime format: []const u8, args: anytype) []u8 {
+    return std.fmt.allocPrint(self.allocator, format, args) catch unreachable;
+}
+
+///
+///
+/// example input:
+///
+/// ```zig
+/// pub fn list(ui: *zui, item: T, index: usize) zui.ViewNode {
+///    return ui.v(.{});
+/// }
+/// ```
+pub fn foreach(self: *Self, component: Component, comptime T: type, items: []const T, cb: *const fn (component: Component, item: T, index: usize) *Node) []*Node {
+    var children = self.allocator.alloc(*Node, items.len) catch unreachable;
+    for (items, 0..) |item, index| {
+        children[index] = cb(component, item, index);
+    }
+    return children;
+}
+
+pub fn tree(self: *Self, root: *Node) Self.NodeId {
+    root.id = self.nodes.items.len;
+    self.nodes.append(self.allocator, root) catch unreachable;
+
+    var node: ?*Node = root.first_child;
+    while (node) |item| {
+        _ = self.tree(item);
+        node = item.next_sibling;
+    }
+
+    return root.id;
+}
+
+pub fn print_tree(self: *Self, node_id: Self.NodeId, depth: u32) void {
+    if (depth == 0) {
+        std.debug.print("\nTree:\n", .{});
+    }
+    // indent based on depth
+    for (0..depth) |_| {
+        std.debug.print("  ", .{});
+    }
+
+    std.debug.print("Node: {d}\n", .{node_id});
+    const root = self.nodes.items[node_id];
+    var node: ?*Node = root.first_child;
+    while (node) |item| {
+        self.print_tree(item.id, depth + 1);
+        node = item.next_sibling;
+    }
+}
+
+pub const Event = union(enum) {
+    click: struct {
+        x: f32,
+        y: f32,
+    },
+};
+
+pub fn handle_event(self: *Self, yoga_elements: *YogaElements, parent_offset: @Vector(2, f32), node_id: Self.NodeId, event: Event) void {
+    const node = self.nodes.items[node_id];
+    const yoga_node = yoga_elements.get(node_id).?;
+
+    const rect = @Vector(4, f32){
+        parent_offset[0] + Yoga.YGNodeLayoutGetLeft(yoga_node),
+        parent_offset[1] + Yoga.YGNodeLayoutGetTop(yoga_node),
+        Yoga.YGNodeLayoutGetWidth(yoga_node),
+        Yoga.YGNodeLayoutGetHeight(yoga_node),
+    };
+
+    switch (event) {
+        .click => |data| {
+            if (rect[0] <= data.x and data.x <= rect[0] + rect[2] and rect[1] <= data.y and data.y <= rect[1] + rect[3]) {
+                if (node.attributes.onclick) |listener| {
+                    listener.call(event);
+                }
+            }
+        },
+    }
+
+    var child = node.first_child;
+    while (child) |ch| {
+        const child_node = self.nodes.items[ch.id];
+        self.handle_event(yoga_elements, @Vector(2, f32){ rect[0], rect[1] }, ch.id, event);
+        child = child_node.next_sibling;
+    }
+}
+
 const Listener = struct {
-    func_ptr: *const fn (component: Component, event: Dom.Event) void,
+    func_ptr: *const fn (component: Component, event: Self.Event) void,
     component: Component,
 
-    pub fn call(self: @This(), event: Dom.Event) void {
+    pub fn call(self: @This(), event: Self.Event) void {
         self.func_ptr(self.component, event);
     }
 };
@@ -268,21 +326,19 @@ const ComponentKey = struct {
 pub const Component = struct {
     pub const Interface = struct {
         obj_ptr: Component,
-        func_ptr: *const fn (ptr: Component) *Node,
+        func_ptr: *const fn (ptr: Component) *Self.Node,
     };
 
     /// this ptr holds the actual component data, like your custom struct
     ptr: *anyopaque,
     /// we store the ui pointer in the component so its easier to call methods
-    dom: *Dom,
+    dom: *Self,
 
-    const Self = @This();
-
-    pub inline fn cast(self: Self, T: type) struct { *T, *Dom } {
+    pub inline fn cast(self: @This(), T: type) struct { *T, *Self } {
         return .{ @ptrCast(@alignCast(self.ptr)), self.dom };
     }
 
-    pub fn listener(self: Self, func_ptr: *const fn (c: Self, event: Dom.Event) void) Listener {
+    pub fn listener(self: @This(), func_ptr: *const fn (c: @This(), event: Self.Event) void) Listener {
         return Listener{
             .func_ptr = func_ptr,
             .component = self,
@@ -292,6 +348,124 @@ pub const Component = struct {
     // pub fn foreach(self: Self, comptime T: type, items: []const T, cb: *const fn (component: Self, item: T, index: usize) *Node) []*Node {
     //     return self.dom.foreach(self, T, items, cb);
     // }
+
+    pub fn createRef(
+        comptime T: type,
+    ) type {
+        return struct {
+            id: usize,
+            component: Component,
+
+            pub fn init(
+                component: Component,
+                initial_value: T,
+            ) @This() {
+                if (component.dom.persistent.hooks.items.len > component.dom.hooks_counter) {
+                    const hook_id = component.dom.hooks_counter;
+                    component.dom.hooks_counter += 1;
+                    return @This(){
+                        .id = hook_id,
+                        .component = component,
+                    };
+                }
+
+                const ptr = component.dom.persistent.allocator.create(T) catch unreachable;
+                ptr.* = initial_value;
+                const make = AnyPointer.make(*T, ptr);
+                component.dom.persistent.hooks.append(component.dom.persistent.allocator, Self.Hook.init(make, component.dom.persistent.id)) catch unreachable;
+                const hook_id = component.dom.hooks_counter;
+                component.dom.hooks_counter += 1;
+
+                return @This(){
+                    .id = hook_id,
+                    .component = component,
+                };
+            }
+
+            pub inline fn get(self: @This()) T {
+                return self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).*;
+            }
+
+            pub inline fn set(self: @This(), value: T) void {
+                self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).* = value;
+                self.component.dom.persistent.hooks.items[self.id].last_changed = self.component.dom.persistent.id;
+            }
+        };
+    }
+
+    pub fn createList(
+        comptime T: type,
+    ) type {
+        return struct {
+            id: usize,
+            component: Component,
+
+            const List = std.ArrayListUnmanaged(T);
+
+            pub fn init(
+                component: Component,
+                // initial_value: T,
+            ) @This() {
+                if (component.dom.persistent.hooks.items.len > component.dom.hooks_counter) {
+                    const hook_id = component.dom.hooks_counter;
+                    component.dom.hooks_counter += 1;
+                    return @This(){
+                        .id = hook_id,
+                        .component = component,
+                    };
+                }
+                const ptr = component.dom.persistent.allocator.create(List) catch unreachable;
+                ptr.* = List{};
+
+                const make = AnyPointer.make(*List, ptr);
+                component.dom.persistent.hooks.append(component.dom.persistent.allocator, Self.Hook.init(make, component.dom.persistent.id)) catch unreachable;
+                const hook_id = component.dom.hooks_counter;
+                component.dom.hooks_counter += 1;
+
+                return @This(){
+                    .id = hook_id,
+                    .component = component,
+                };
+            }
+
+            pub inline fn append(self: @This(), item: T) void {
+                const list = self.component.dom.persistent.hooks.items[self.id].ptr.cast(*List);
+                list.append(self.component.dom.persistent.allocator, item) catch unreachable;
+            }
+
+            pub fn slice(self: @This()) []T {
+                const list = self.component.dom.persistent.hooks.items[self.id].ptr.cast(*List);
+                return list.items;
+            }
+
+            pub inline fn set(self: @This(), value: T) void {
+                _ = self; // autofix
+                _ = value; // autofix
+                // self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).* = value;
+                // self.component.dom.persistent.hooks.items[self.id].last_changed = self.component.dom.persistent.id;
+            }
+        };
+    }
+
+    pub fn useEffect(
+        component: Component,
+        callback: *const fn (component: Component) void,
+        dependencies: []const usize,
+    ) void {
+        var any_mutated = false;
+        for (dependencies) |dep| {
+            if (component.dom.persistent.hooks.items[dep].last_changed == (component.dom.persistent.id - 1)) {
+                any_mutated = true;
+                break;
+            }
+        }
+
+        if (!any_mutated) {
+            return;
+        }
+
+        callback(component);
+    }
 };
 
 fn getClassSlice(prefix: []const u8, class: []const u8) ?[]const u8 {
@@ -336,16 +510,16 @@ const YogaContext = struct {
     class: []const u8,
 };
 
-pub fn applyLayoutStyle(yg_node: c.YGNodeRef, options: *const Options, class: []const u8, text: []const u8) void {
+pub fn applyLayoutStyle(yg_node: c.YGNodeRef, options: *const Options, class: []const u8, text_value: []const u8) void {
     // TODO: we need to reset the node here if the class was different last frame
     // TODO: use the measure callbacks instead to support wrapping text
-    if (text.len > 0) {
+    if (text_value.len > 0) {
         const font_name = getClassSlice("font-", class) orelse "default";
         const desc = options.font_name_to_desc.get(font_name);
 
         if (desc) |font_desc| {
             const atlas = options.font_manager.atlases.get(font_desc).?;
-            const size = atlas.measure(text);
+            const size = atlas.measure(text_value);
             c.YGNodeStyleSetMinWidth(yg_node, size[0]);
             c.YGNodeStyleSetMinHeight(yg_node, size[1]);
             c.YGNodeStyleSetWidthAuto(yg_node);
@@ -469,188 +643,3 @@ pub fn applyLayoutStyle(yg_node: c.YGNodeRef, options: *const Options, class: []
         }
     }
 }
-
-const NodeAttributes = struct {
-    key: []const u8 = "",
-    class: []const u8 = "",
-    text: []const u8 = "",
-    onclick: ?Listener = null,
-    children: ?[]const *Node = null,
-};
-
-pub const Style = struct {
-    background_color: @Vector(4, u8) = @Vector(4, u8){ 0, 0, 0, 0 },
-    /// text color
-    color: @Vector(4, u8) = @Vector(4, u8){ 0, 0, 0, 255 },
-    font_name: []const u8 = "default",
-    rounding: f32 = 0.0,
-};
-
-pub const Node = struct {
-    id: usize = std.math.maxInt(usize),
-    attributes: NodeAttributes,
-    first_child: ?*Node = null,
-    next_sibling: ?*Node = null,
-    yoga_ref: YogaNodeRef = null,
-    style: Style = Style{},
-
-    pub fn init(attributes: NodeAttributes, options: *const Options) Node {
-        var node = Node{
-            .attributes = attributes,
-        };
-        node.setStyleFromAttributes(options);
-
-        return node;
-    }
-
-    pub fn setStyleFromAttributes(self: *Node, options: *const Options) void {
-        var classes = std.mem.splitSequence(u8, self.attributes.class, " ");
-        while (classes.next()) |class| {
-            self.applyStyle(options, class);
-        }
-    }
-
-    pub fn applyStyle(self: *Node, options: *const Options, class: []const u8) void {
-        if (getClassSlice("font-", class)) |font_name| {
-            self.style.font_name = font_name;
-        }
-
-        if (getClassValue(f32, "rounded-", class)) |f| {
-            self.style.rounding = f;
-        }
-
-        if (getClassSlice("bg-", class)) |color| {
-            self.style.background_color = options.colors.get(color) orelse blk: {
-                std.debug.print("color not found: {s}\n", .{color});
-                break :blk @Vector(4, u8){ 0, 0, 0, 255 };
-            };
-        }
-
-        if (getClassSlice("text-", class)) |color| {
-            self.style.color = options.colors.get(color) orelse blk: {
-                std.debug.print("color not found: {s}\n", .{color});
-                break :blk @Vector(4, u8){ 0, 0, 0, 255 };
-            };
-        }
-    }
-};
-
-pub const Hooks = struct {
-    pub fn createRef(
-        comptime T: type,
-    ) type {
-        return struct {
-            id: usize,
-            component: Component,
-
-            pub fn init(
-                component: Component,
-                initial_value: T,
-            ) @This() {
-                if (component.dom.persistent.hooks.items.len > component.dom.hooks_counter) {
-                    const hook_id = component.dom.hooks_counter;
-                    component.dom.hooks_counter += 1;
-                    return @This(){
-                        .id = hook_id,
-                        .component = component,
-                    };
-                }
-
-                const ptr = component.dom.persistent.allocator.create(T) catch unreachable;
-                ptr.* = initial_value;
-                const make = AnyPointer.make(*T, ptr);
-                component.dom.persistent.hooks.append(component.dom.persistent.allocator, Dom.Hook.init(make, component.dom.persistent.id)) catch unreachable;
-                const hook_id = component.dom.hooks_counter;
-                component.dom.hooks_counter += 1;
-
-                return @This(){
-                    .id = hook_id,
-                    .component = component,
-                };
-            }
-
-            pub inline fn get(self: @This()) T {
-                return self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).*;
-            }
-
-            pub inline fn set(self: @This(), value: T) void {
-                self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).* = value;
-                self.component.dom.persistent.hooks.items[self.id].last_changed = self.component.dom.persistent.id;
-            }
-        };
-    }
-
-    pub fn createList(
-        comptime T: type,
-    ) type {
-        return struct {
-            id: usize,
-            component: Component,
-
-            const List = std.ArrayListUnmanaged(T);
-
-            pub fn init(
-                component: Component,
-                // initial_value: T,
-            ) @This() {
-                if (component.dom.persistent.hooks.items.len > component.dom.hooks_counter) {
-                    const hook_id = component.dom.hooks_counter;
-                    component.dom.hooks_counter += 1;
-                    return @This(){
-                        .id = hook_id,
-                        .component = component,
-                    };
-                }
-                const ptr = component.dom.persistent.allocator.create(List) catch unreachable;
-                ptr.* = List{};
-
-                const make = AnyPointer.make(*List, ptr);
-                component.dom.persistent.hooks.append(component.dom.persistent.allocator, Dom.Hook.init(make, component.dom.persistent.id)) catch unreachable;
-                const hook_id = component.dom.hooks_counter;
-                component.dom.hooks_counter += 1;
-
-                return @This(){
-                    .id = hook_id,
-                    .component = component,
-                };
-            }
-
-            pub inline fn append(self: @This(), item: T) void {
-                const list = self.component.dom.persistent.hooks.items[self.id].ptr.cast(*List);
-                list.append(self.component.dom.persistent.allocator, item) catch unreachable;
-            }
-
-            pub fn slice(self: @This()) []T {
-                const list = self.component.dom.persistent.hooks.items[self.id].ptr.cast(*List);
-                return list.items;
-            }
-
-            pub inline fn set(self: @This(), value: T) void {
-                _ = self; // autofix
-                _ = value; // autofix
-                // self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).* = value;
-                // self.component.dom.persistent.hooks.items[self.id].last_changed = self.component.dom.persistent.id;
-            }
-        };
-    }
-
-    pub fn useEffect(
-        component: Component,
-        callback: *const fn (component: Component) void,
-        dependencies: []const usize,
-    ) void {
-        var any_mutated = false;
-        for (dependencies) |dep| {
-            if (component.dom.persistent.hooks.items[dep].last_changed == (component.dom.persistent.id - 1)) {
-                any_mutated = true;
-                break;
-            }
-        }
-
-        if (!any_mutated) {
-            return;
-        }
-
-        callback(component);
-    }
-};

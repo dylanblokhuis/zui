@@ -12,7 +12,7 @@ pub const LayoutDirectionLTR = c.YGDirectionLTR;
 
 pub const Yoga = c;
 
-pub const YogaElements = std.AutoHashMap(u32, YogaNodeRef);
+pub const YogaElements = std.AutoHashMap(Dom.NodeId, YogaNodeRef);
 
 pub const Options = struct {
     font_manager: FontManager,
@@ -45,7 +45,7 @@ pub const Dom = struct {
         }
     };
 
-    // pub const NodeId = usize;
+    pub const NodeId = usize;
     // pub const InvalidNodeId: usize = std.math.maxInt(usize);
 
     /// This data should persist between renders
@@ -94,9 +94,7 @@ pub const Dom = struct {
 
     pub fn view(self: *Self, attributes: NodeAttributes) *Node {
         const parent = self.allocator.create(Node) catch unreachable;
-        parent.* = Node{
-            .attributes = attributes,
-        };
+        parent.* = Node.init(attributes, self.options);
 
         if (attributes.children) |children| {
             for (children) |child_ptr| {
@@ -155,16 +153,13 @@ pub const Dom = struct {
     ///    return ui.v(.{});
     /// }
     /// ```
-    // pub fn foreach(self: *Self, component: Component, comptime T: type, items: []const T, cb: *const fn (component: Component, item: T, index: usize) Dom.NodeId) []Dom.NodeId {
-    //     var children = self.allocator.alloc(Dom.NodeId, items.len) catch unreachable;
-    //     for (items, 0..) |item, index| {
-    //         children[index] = cb(component, item, index);
-    //     }
-
-    //     std.log.debug("slice: {d}", .{children});
-
-    //     return children;
-    // }
+    pub fn foreach(self: *Self, component: Component, comptime T: type, items: []const T, cb: *const fn (component: Component, item: T, index: usize) *Node) []*Node {
+        var children = self.allocator.alloc(*Node, items.len) catch unreachable;
+        for (items, 0..) |item, index| {
+            children[index] = cb(component, item, index);
+        }
+        return children;
+    }
 
     pub fn tree(self: *Dom, root: *Node) Dom.NodeId {
         root.id = self.nodes.items.len;
@@ -192,7 +187,7 @@ pub const Dom = struct {
         const root = self.nodes.items[node_id];
         var node: ?*Node = root.first_child;
         while (node) |item| {
-            self.print_tree(item, depth + 1);
+            self.print_tree(item.id, depth + 1);
             node = item.next_sibling;
         }
     }
@@ -205,7 +200,7 @@ pub const Dom = struct {
     };
 
     pub fn handle_event(self: *Self, yoga_elements: *YogaElements, parent_offset: @Vector(2, f32), node_id: Self.NodeId, event: Event) void {
-        const node = &self.nodes.items[node_id];
+        const node = self.nodes.items[node_id];
         const yoga_node = yoga_elements.get(node_id).?;
 
         const rect = @Vector(4, f32){
@@ -226,9 +221,9 @@ pub const Dom = struct {
         }
 
         var child = node.first_child;
-        while (child != Self.InvalidNodeId) {
-            const child_node = self.nodes.items[child];
-            self.handle_event(yoga_elements, @Vector(2, f32){ rect[0], rect[1] }, child, event);
+        while (child) |ch| {
+            const child_node = self.nodes.items[ch.id];
+            self.handle_event(yoga_elements, @Vector(2, f32){ rect[0], rect[1] }, ch.id, event);
             child = child_node.next_sibling;
         }
     }
@@ -299,98 +294,6 @@ pub const Component = struct {
     // }
 };
 
-// pub fn createRef(
-//     comptime T: type,
-// ) type {
-//     return struct {
-//         id: usize,
-//         component: Component,
-
-//         pub fn init(
-//             component: Component,
-//             initial_value: T,
-//         ) @This() {
-//             if (component.dom.persistent.hooks.items.len > component.dom.hooks_counter) {
-//                 const hook_id = component.dom.hooks_counter;
-//                 return @This(){
-//                     .id = hook_id,
-//                     .component = component,
-//                 };
-//             }
-
-//             const ptr = component.dom.persistent.allocator.create(T) catch unreachable;
-//             ptr.* = initial_value;
-//             const make = AnyPointer.make(*T, ptr);
-//             component.dom.persistent.hooks.append(component.dom.persistent.allocator, Dom.Hook.init(make, component.dom.persistent.id)) catch unreachable;
-//             const hook_id = component.dom.hooks_counter;
-//             component.dom.hooks_counter += 1;
-
-//             return @This(){
-//                 .id = hook_id,
-//                 .component = component,
-//             };
-//         }
-
-//         pub inline fn get(self: @This()) T {
-//             return self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).*;
-//         }
-
-//         pub inline fn set(self: @This(), value: T) void {
-//             self.component.dom.persistent.hooks.items[self.id].ptr.cast(*T).* = value;
-//             self.component.dom.persistent.hooks.items[self.id].last_changed = self.component.dom.persistent.id;
-//         }
-//     };
-// }
-
-// pub fn useEffect(
-//     component: Component,
-//     callback: *const fn (component: Component) void,
-//     dependencies: []const usize,
-// ) void {
-//     var any_mutated = false;
-//     for (dependencies) |dep| {
-//         if (component.dom.persistent.hooks.items[dep].last_changed == (component.dom.persistent.id - 1)) {
-//             any_mutated = true;
-//             break;
-//         }
-//     }
-
-//     if (!any_mutated) {
-//         return;
-//     }
-
-//     callback(component);
-// }
-
-pub fn replace(prev: ?*Dom, next: *Dom, prev_node: Dom.NodeId, next_node: Dom.NodeId, yoga_elements: *YogaElements, options: *const Options) !Dom.NodeId {
-    if (prev_node != Dom.InvalidNodeId) {
-        const maybe_yg_node = yoga_elements.get(prev_node);
-        if (maybe_yg_node) |yg_node| {
-            c.YGNodeFreeRecursive(yg_node);
-        }
-        _ = yoga_elements.remove(prev_node);
-    }
-
-    const yg_node = c.YGNodeNew();
-    const text = next.nodes.items[next_node].attributes.text;
-    var classes = std.mem.splitSequence(u8, next.nodes.items[next_node].attributes.class, " ");
-    while (classes.next()) |class| {
-        applyLayoutStyle(yg_node, options, class, text);
-    }
-    try yoga_elements.put(next_node, yg_node);
-
-    var child = next.nodes.items[next_node].first_child;
-    var index: usize = 0;
-    while (child != Dom.InvalidNodeId) {
-        const next_child = try replace(prev, next, Dom.InvalidNodeId, child, yoga_elements, options);
-        c.YGNodeInsertChild(yg_node, yoga_elements.get(next_child).?, index);
-        child = next.nodes.items[child].next_sibling;
-        index += 1;
-    }
-
-    return next_node;
-}
-
 fn getClassSlice(prefix: []const u8, class: []const u8) ?[]const u8 {
     var splits = std.mem.split(u8, class, prefix);
 
@@ -429,7 +332,12 @@ fn getClassValue(comptime T: type, prefix: []const u8, class: []const u8) ?T {
     return null;
 }
 
+const YogaContext = struct {
+    class: []const u8,
+};
+
 pub fn applyLayoutStyle(yg_node: c.YGNodeRef, options: *const Options, class: []const u8, text: []const u8) void {
+    // TODO: we need to reset the node here if the class was different last frame
     // TODO: use the measure callbacks instead to support wrapping text
     if (text.len > 0) {
         const font_name = getClassSlice("font-", class) orelse "default";
@@ -562,78 +470,6 @@ pub fn applyLayoutStyle(yg_node: c.YGNodeRef, options: *const Options, class: []
     }
 }
 
-pub fn diff(prev_dom: ?*Dom, next_dom: *Dom, prev_node: Dom.NodeId, next_node: Dom.NodeId, mutations: *std.ArrayList(Mutation)) !void {
-    if (prev_node == Dom.InvalidNodeId) {
-        try mutations.append(.{
-            .replace = .{
-                .prev = Dom.InvalidNodeId,
-                .next = next_node,
-            },
-        });
-    } else {
-        const prev = &prev_dom.?.nodes.items[prev_node];
-        const next = &next_dom.nodes.items[next_node];
-
-        // key is different, we rebuild the entire subtree
-        if (!std.mem.eql(u8, prev.attributes.key, next.attributes.key)) {
-            try mutations.append(.{
-                .replace = .{
-                    .prev = prev_node,
-                    .next = next_node,
-                },
-            });
-        }
-
-        // class is different, we update the node
-        if (!std.mem.eql(u8, prev.attributes.class, next.attributes.class)) {
-            try mutations.append(.{
-                .updateClass = .{
-                    .node = next_node,
-                    .class = next.attributes.class,
-                },
-            });
-        }
-
-        if (!std.mem.eql(u8, prev.attributes.text, next.attributes.text)) {
-            try mutations.append(.{
-                .updateText = .{
-                    .node = next_node,
-                    .text = next.attributes.text,
-                },
-            });
-        }
-    }
-
-    if (prev_dom == null) {
-        return;
-    }
-
-    var maybe_prev_child = prev_dom.?.nodes.items[prev_node].first_child;
-    var maybe_next_child = next_dom.nodes.items[next_node].first_child;
-
-    while (maybe_prev_child != Dom.InvalidNodeId or maybe_next_child != Dom.InvalidNodeId) {
-        if (maybe_prev_child == Dom.InvalidNodeId) {
-            try mutations.append(.{ .replace = .{
-                .prev = Dom.InvalidNodeId,
-                .next = maybe_next_child,
-            } });
-        } else if (maybe_next_child == Dom.InvalidNodeId) {
-            try mutations.append(.{ .replace = .{
-                .prev = maybe_prev_child,
-                .next = Dom.InvalidNodeId,
-            } });
-        } else {
-            try diff(prev_dom, next_dom, maybe_prev_child, maybe_next_child, mutations);
-        }
-
-        if (maybe_prev_child == Dom.InvalidNodeId) {
-            break;
-        }
-        maybe_prev_child = prev_dom.?.nodes.items[maybe_prev_child].next_sibling;
-        maybe_next_child = next_dom.nodes.items[maybe_next_child].next_sibling;
-    }
-}
-
 const NodeAttributes = struct {
     key: []const u8 = "",
     class: []const u8 = "",
@@ -697,25 +533,6 @@ pub const Node = struct {
             };
         }
     }
-};
-
-pub const Mutation = union(enum) {
-    replace: struct {
-        prev: Dom.NodeId,
-        next: Dom.NodeId,
-    },
-    updateClass: struct {
-        node: Dom.NodeId,
-        class: []const u8,
-    },
-    updateText: struct {
-        node: Dom.NodeId,
-        text: []const u8,
-    },
-    updateOnClick: struct {
-        node: Dom.NodeId,
-        onclick: ?*const fn (Node) void,
-    },
 };
 
 pub const Hooks = struct {

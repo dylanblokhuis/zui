@@ -60,9 +60,9 @@ pub fn render(rl_fonts: *const RLFonts, dom: *ui.Dom, node_id: ui.Dom.NodeId, yo
     }
 
     var child = node.first_child;
-    while (child != ui.Dom.InvalidNodeId) {
-        const child_node = dom.nodes.items[child];
-        render(rl_fonts, dom, child, yoga_elements, options, @Vector(2, f32){ parent_x_offset, parent_y_offset });
+    while (child) |c| {
+        const child_node = dom.nodes.items[c.id];
+        render(rl_fonts, dom, c.id, yoga_elements, options, @Vector(2, f32){ parent_x_offset, parent_y_offset });
         child = child_node.next_sibling;
     }
 }
@@ -72,7 +72,7 @@ pub fn main() !void {
     rl.setConfigFlags(.flag_window_resizable);
     rl.initWindow(1280, 720, "some-game");
     rl.setWindowMonitor(0);
-    rl.setTargetFPS(24);
+    // rl.setTargetFPS(24);
 
     var yoga_elements = ui.YogaElements.init(std.heap.c_allocator);
 
@@ -87,7 +87,7 @@ pub fn main() !void {
     }
     try options.loadFont(std.heap.c_allocator, "default", .{
         .path = "./assets/Inter-Bold.ttf",
-        .size = 32,
+        .size = 24,
     });
 
     var rl_fonts = RLFonts.init(std.heap.c_allocator);
@@ -110,13 +110,10 @@ pub fn main() !void {
     var first_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     var second_arena: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     var prev_dom: ?ui.Dom = null;
-    var prev_root_node: ui.Dom.NodeId = ui.Dom.InvalidNodeId;
+    var prev_root_node: ?ui.Dom.NodeId = null;
 
     var current_arena = &first_arena;
     var is_first_arena = true;
-
-    var current_dom_width = rl.getScreenWidth();
-    var current_dom_height = rl.getScreenHeight();
 
     var hooks_storage = ui.Dom.Persistent{
         .allocator = std.heap.c_allocator,
@@ -138,7 +135,8 @@ pub fn main() !void {
             .class = "flex flex-col p-10",
 
             .children = &.{
-                // dom.text("font-default bg-blue", dom.fmt("{d}", .{rl.getFPS()})),
+                dom.text("bg-blue", dom.fmt("{d}", .{rl.getFPS()})),
+                dom.text("text-white bg-blue", dom.fmt("Yoga elements: {d}", .{yoga_elements.count()})),
                 // dom.view(.{
                 //     .class = "bg-blue",
                 //     .children = &.{
@@ -153,62 +151,10 @@ pub fn main() !void {
             },
         }));
 
-        dom.print_tree(root, 0);
+        // dom.print_tree(root, 0);
 
-        std.log.debug("root_id: {d}", .{root});
-
-        var mutations = std.ArrayList(ui.Mutation).init(allocator);
-
-        try ui.diff(if (prev_dom != null) &prev_dom.? else null, &dom, prev_root_node, root, &mutations);
-
-        std.log.debug("{any}", .{mutations.items});
-        for (mutations.items) |item| {
-            switch (item) {
-                ui.Mutation.replace => |data| {
-                    _ = try ui.replace(
-                        if (prev_dom != null) &prev_dom.? else null,
-                        &dom,
-                        data.prev,
-                        data.next,
-                        &yoga_elements,
-                        &options,
-                    );
-                },
-                ui.Mutation.updateClass => |data| {
-                    var node = &dom.nodes.items[data.node];
-                    node.attributes.class = data.class;
-                    node.style = ui.Style{};
-
-                    // TODO: temp
-                    const yg_node = yoga_elements.get(data.node).?;
-                    var classes = std.mem.splitSequence(u8, node.attributes.class, " ");
-                    while (classes.next()) |class| {
-                        node.applyStyle(&options, class);
-                        ui.applyLayoutStyle(yg_node, &options, class, node.attributes.text);
-                    }
-                },
-                ui.Mutation.updateText => |data| {
-                    var node = &dom.nodes.items[data.node];
-                    node.attributes.text = data.text;
-
-                    const yg_node = yoga_elements.get(data.node).?;
-                    var classes = std.mem.splitSequence(u8, node.attributes.class, " ");
-                    while (classes.next()) |class| {
-                        ui.applyLayoutStyle(yg_node, &options, class, node.attributes.text);
-                    }
-                },
-                ui.Mutation.updateOnClick => |update_onclick| {
-                    _ = update_onclick; // autofix
-                },
-            }
-        }
-
-        if (mutations.items.len > 0 or (current_dom_width != rl.getScreenWidth() and current_dom_height != rl.getScreenHeight())) {
-            current_dom_width = rl.getScreenWidth();
-            current_dom_height = rl.getScreenHeight();
-
-            ui.CalculateLayout(yoga_elements.get(root).?, @floatFromInt(current_dom_width), @floatFromInt(current_dom_height), ui.LayoutDirectionLTR);
-        }
+        const yg_root_node = doYoga(&dom, root, &yoga_elements);
+        ui.CalculateLayout(yg_root_node, @floatFromInt(rl.getScreenWidth()), @floatFromInt(rl.getScreenHeight()), ui.LayoutDirectionLTR);
 
         if (rl.isMouseButtonPressed(.mouse_button_left)) {
             dom.handle_event(&yoga_elements, .{ 0, 0 }, root, .{
@@ -233,4 +179,42 @@ pub fn main() !void {
 
         rl.endDrawing();
     }
+}
+
+pub fn doYoga(dom: *ui.Dom, node_id: ui.Dom.NodeId, yoga_elements: *ui.YogaElements) ui.Yoga.YGNodeRef {
+    const node = dom.nodes.items[node_id];
+
+    const yg_node = if (yoga_elements.get(node_id)) |yg| blk: {
+        break :blk yg;
+    } else blk: {
+        const yg_node = ui.Yoga.YGNodeNew();
+        yoga_elements.put(node_id, yg_node) catch unreachable;
+        break :blk yg_node;
+    };
+
+    var classes = std.mem.splitSequence(u8, node.attributes.class, " ");
+    while (classes.next()) |class| {
+        node.applyStyle(dom.options, class);
+        // TODO: we need to reset the node here if the class was different last frame
+        ui.applyLayoutStyle(yg_node, dom.options, class, node.attributes.text);
+    }
+
+    var child = node.first_child;
+    var index: usize = 0;
+    while (child) |c| {
+        const c_yg_node = doYoga(dom, c.id, yoga_elements);
+
+        const parent_node = ui.Yoga.YGNodeGetParent(c_yg_node);
+        if (parent_node == null) {
+            ui.Yoga.YGNodeInsertChild(yg_node, c_yg_node, index);
+        } else if (parent_node != yg_node) {
+            ui.Yoga.YGNodeRemoveChild(parent_node, c_yg_node);
+            ui.Yoga.YGNodeInsertChild(yg_node, c_yg_node, index);
+        }
+
+        child = dom.nodes.items[c.id].next_sibling;
+        index += 1;
+    }
+
+    return yg_node;
 }

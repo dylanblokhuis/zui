@@ -120,9 +120,7 @@ pub fn main() !void {
         .allocator = std.heap.c_allocator,
     };
 
-    // ui2.example();
-
-    // // Wait for the user to close the window.
+    // Wait for the user to close the window.
     while (!rl.windowShouldClose()) {
         _ = current_arena.reset(.retain_capacity);
         const allocator = current_arena.allocator();
@@ -138,15 +136,6 @@ pub fn main() !void {
             .children = &.{
                 dom.text("bg-blue", dom.fmt("{d}", .{rl.getFPS()})),
                 dom.text("text-white bg-blue", dom.fmt("Yoga elements: {d}", .{yoga_elements.count()})),
-                // dom.view(.{
-                //     .class = "bg-blue",
-                //     .children = &.{
-                //         dom.view(.{
-                //             .class = "w-400 h-200 bg-red",
-                //         }),
-                //         dom.text("font-default", "Henk!"),
-                //     },
-                // }),
 
                 dom.custom(&Checkbox{}),
             },
